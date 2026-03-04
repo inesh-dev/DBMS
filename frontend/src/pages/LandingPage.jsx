@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, Clock, Heart, UserPlus } from 'lucide-react';
+import { Shield, Clock, Heart, UserPlus, Users } from 'lucide-react';
 import VitalsCheckForm from '../components/VitalsCheckForm';
 
 function LandingPage() {
@@ -23,12 +23,20 @@ function LandingPage() {
                             <a href="#services" className="text-gray-300 hover:text-white transition-colors">Services</a>
                             <a href="#contact" className="text-gray-300 hover:text-white transition-colors">Contact</a>
                         </div>
-                        <button 
-                            onClick={() => window.location.href = '/login'}
-                            className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-full font-medium transition-all shadow-lg shadow-blue-600/20"
-                        >
-                            Portal Login
-                        </button>
+                        <div className="flex gap-4">
+                            <button 
+                                onClick={() => window.location.href = '/login?role=DOCTOR'}
+                                className="text-gray-300 hover:text-white font-medium transition-all"
+                            >
+                                Doctor Login
+                            </button>
+                            <button 
+                                onClick={() => window.location.href = '/login?role=PATIENT'}
+                                className="bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded-full font-medium transition-all shadow-lg shadow-blue-600/20"
+                            >
+                                Patient Login
+                            </button>
+                        </div>
                     </div>
                 </div>
             </nav>
@@ -48,14 +56,29 @@ function LandingPage() {
                         Experience world-class healthcare with our advanced patient monitoring system. 
                         We combine cutting-edge technology with compassionate care to ensure your well-being.
                     </p>
-                    <button 
-                        onClick={() => setShowVitalsForm(true)}
-                        className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:scale-105 transform transition-all duration-300 px-8 py-4 rounded-full text-lg font-bold flex items-center gap-2 mx-auto shadow-xl shadow-blue-500/25"
-                    >
-                        <Heart className="w-5 h-5"/>
-                        Check Your Vitals Now
-                    </button>
-                    <p className="mt-4 text-sm text-gray-500">Instant AI Risk Assessment & Booking</p>
+                    <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                        <button 
+                            onClick={() => setShowVitalsForm(true)}
+                            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:scale-105 transform transition-all duration-300 px-8 py-4 rounded-full text-lg font-bold flex items-center gap-2 shadow-xl shadow-blue-500/25"
+                        >
+                            <Heart className="w-5 h-5"/>
+                            Check Vitals
+                        </button>
+                        <button 
+                            onClick={() => window.location.href = '/login?role=PATIENT'}
+                            className="bg-[#1f2632] border border-gray-800 hover:border-gray-600 transform transition-all duration-300 px-8 py-4 rounded-full text-lg font-bold flex items-center gap-2 shadow-xl"
+                        >
+                            Patient Login
+                        </button>
+                        <button 
+                            onClick={() => window.location.href = '/login?role=DOCTOR'}
+                            className="bg-[#1f2632] border border-gray-800 hover:border-gray-600 transform transition-all duration-300 px-8 py-4 rounded-full text-lg font-bold flex items-center gap-2 shadow-xl"
+                        >
+                            <Users size={20} className="text-blue-500" />
+                            Doctor Login
+                        </button>
+                    </div>
+                    <p className="mt-4 text-sm text-gray-500">Instant AI Risk Assessment & Dashboard Access</p>
                 </motion.div>
             </section>
 

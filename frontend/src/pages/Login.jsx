@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
+import { useLocation } from 'react-router-dom';
 import { Heart, Lock, Phone } from 'lucide-react';
 import axios from 'axios';
 
@@ -8,6 +9,18 @@ function Login() {
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    
+    const location = useLocation();
+    const queryParams = new URLSearchParams(location.search);
+    const roleParam = queryParams.get('role'); // 'DOCTOR' or 'PATIENT'
+
+    const title = roleParam === 'DOCTOR' ? 'Doctor Portal' : 
+                  roleParam === 'PATIENT' ? 'Patient Portal' : 
+                  'VibeCare Portal';
+
+    const loginText = roleParam === 'DOCTOR' ? 'Doctor Credentials' : 
+                      roleParam === 'PATIENT' ? 'Patient Credentials' : 
+                      'Sign In';
 
     const handleLogin = async (e) => {
         e.preventDefault();
@@ -46,7 +59,7 @@ function Login() {
                     <div className="flex items-center gap-2">
                         <Heart className="w-8 h-8 text-blue-500" />
                         <span className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-indigo-500 bg-clip-text text-transparent">
-                            VibeCare Portal
+                            {title}
                         </span>
                     </div>
                 </div>
@@ -93,7 +106,7 @@ function Login() {
                         disabled={loading}
                         className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white font-medium py-3 rounded-lg transition-colors shadow-lg shadow-blue-600/20 mt-4"
                     >
-                        {loading ? 'Authenticating...' : 'Sign In'}
+                        {loading ? 'Authenticating...' : loginText}
                     </button>
                     
                     <div className="text-center mt-6">

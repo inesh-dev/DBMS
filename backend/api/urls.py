@@ -16,4 +16,13 @@ urlpatterns = [
     path('patients/add/', views.AddPatientView.as_view(), name='add-patient'),
     path('billing/create/', views.CreateBillingView.as_view(), name='create-billing'),
     path('revenue/', views.MonthlyRevenueView.as_view(), name='monthly-revenue'),
+    path('appointments/reminders/trigger/', views.TriggerRemindersView.as_view(), name='trigger-reminders'),
+    path('patients/<int:patient_id>/discharge/', views.DischargePatientView.as_view(), name='discharge-patient'),
+    path('doctor-availability/add/', views.AddDoctorAvailabilityView.as_view(), name='add-availability'),
+    path('alerts/acknowledge/<int:prediction_id>/', views.AcknowledgeAlertView.as_view(), name='acknowledge-alert'),
+    path('patients/<int:patient_id>/profile/', views.UpdatePatientProfileView.as_view(), name='update-profile'),
+    path('patients/<int:patient_id>/detail/', views.PatientDetailForDoctorView.as_view(), name='patient-detail'),
+    path('patients/<int:patient_id>/symptoms/add/', views.AddSymptomLogView.as_view(), name='add-symptom-log'),
+    path('patients/<int:patient_id>/medications/', views.MedicationManagementView.as_view(), name='manage-medications'),
+    path('medications/<int:medication_id>/', views.MedicationManagementView.as_view(), name='delete-medication'),
 ]

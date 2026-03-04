@@ -1,4 +1,6 @@
-from django.db import connection
+from django.db import connection, transaction
+from django.core.mail import send_mail
+from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -7,12 +9,27 @@ import random
 from django.contrib.auth.hashers import make_password
 from . import sql_queries
 
-def send_whatsapp_message(phone, msg):
-    # Mock Twilio Implementation
-    # from twilio.rest import Client
-    # client = Client('ACCOUNT_SID', 'AUTH_TOKEN')
-    # message = client.messages.create(body=msg, from_='whatsapp:+14155238886', to=f'whatsapp:{phone}')
-    print(f"[WHATSAPP MOCK] To {phone}: {msg}")
+def send_credential_email(email, phone, password, user_name):
+    subject = "Your VibeCare Hospital Account Credentials"
+    message = f"""
+    Hello {user_name},
+    
+    Your account has been created at VibeCare Hospital.
+    
+    Login Details:
+    Phone: {phone}
+    Temporary Password: {password}
+    
+    Please log in and change your password at your earliest convenience.
+    
+    Best regards,
+    VibeCare Hospital Team
+    """
+    try:
+        send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email])
+        print(f"[EMAIL SENT] To {email}")
+    except Exception as e:
+        print(f"[EMAIL ERROR] {str(e)}")
 
 def dict_fetch_all(cursor):
     """Return all rows from a cursor as a list of dicts"""
@@ -29,6 +46,50 @@ def dict_fetch_one(cursor):
     if row:
         return dict(zip(columns, row))
     return None
+
+def calculate_health_score(vitals):
+    """
+    Calculates a health score from 0-100 based on vital signs.
+    Higher is better.
+    """
+    score = 100
+    
+    # Blood Pressure
+    sys = vitals.get('blood_pressure_systolic')
+    dia = vitals.get('blood_pressure_diastolic')
+    if sys:
+        sys = int(sys)
+        if sys > 140 or sys < 90: score -= 15
+        if sys > 160 or sys < 80: score -= 15
+        if sys > 180: score -= 20
+        
+    if dia:
+        dia = int(dia)
+        if dia > 90 or dia < 60: score -= 10
+        if dia > 100: score -= 10
+
+    # Heart Rate
+    hr = vitals.get('heart_rate')
+    if hr:
+        hr = int(hr)
+        if hr > 100 or hr < 60: score -= 15
+        if hr > 120 or hr < 50: score -= 15
+
+    # Glucose
+    gl = vitals.get('glucose_level')
+    if gl:
+        gl = float(gl)
+        if gl > 140 or gl < 70: score -= 10
+        if gl > 200: score -= 15
+
+    # Oxygen
+    ox = vitals.get('oxygen_saturation')
+    if ox:
+        ox = float(ox)
+        if ox < 95: score -= 20
+        if ox < 90: score -= 30
+
+    return max(0, min(100, score))
 
 class CheckVitalsView(APIView):
     """API to evaluate vitals dynamically without saving"""
@@ -65,38 +126,51 @@ class CheckVitalsView(APIView):
             abnormal = True
             reasons.append("Oxygen saturation too low (Normal: 95+)")
 
+        health_score = calculate_health_score(request.data)
+        
         if abnormal:
             with connection.cursor() as cursor:
                 cursor.execute("""
-                    SELECT u.user_id as doctor_id, u.email as pre_name, u.specialization, u.experience_years,
+                    SELECT u.user_id as doctor_id, 
+                           COALESCE(u.first_name || ' ' || u.last_name, u.email) as full_name,
+                           u.specialization, u.experience_years,
                            COALESCE(json_agg(
-                               json_build_object(
-                                   'availability_id', da.availability_id,
-                                   'date', da.available_date,
-                                   'start', da.slot_start,
-                                   'end', da.slot_end
-                               )
-                           ) FILTER (WHERE da.availability_id IS NOT NULL), '[]') as available_slots
+                                json_build_object(
+                                    'availability_id', da.availability_id,
+                                    'date', da.available_date,
+                                    'start', da.slot_start,
+                                    'end', da.slot_end
+                                )
+                            ) FILTER (
+                                WHERE da.availability_id IS NOT NULL 
+                                AND (
+                                    SELECT COUNT(*) FROM appointments a 
+                                    WHERE a.availability_id = da.availability_id
+                                    AND a.status != 'CANCELLED'
+                                ) < da.max_patients
+                            ), '[]'::json) as available_slots
                     FROM users u
-                    LEFT JOIN doctor_availability da ON u.user_id = da.doctor_id AND da.available_date >= CURRENT_DATE
+                    LEFT JOIN doctor_availability da ON u.user_id = da.doctor_id
                     WHERE u.role = 'DOCTOR'
-                    GROUP BY u.user_id, u.email, u.specialization, u.experience_years
+                    GROUP BY u.user_id
+                    LIMIT 3
                 """)
                 doctors = dict_fetch_all(cursor)
-                
-                # Format name properly since email contains name usually in sample data
-                for d in doctors:
-                    d['name'] = "Dr. " + d['pre_name'].split('@')[0].replace('dr.', '').title()
-                    d.pop('pre_name', None)
-            
+
             return Response({
-                "status": "OUT_OF_RANGE",
-                "message": "Your vitals are out of the normal range. Please consult a doctor immediately.",
+                "abnormal": True,
+                "health_score": health_score,
                 "reasons": reasons,
+                "message": "Attention Needed: Your vitals show some abnormalities.",
+                "recommendation": "We recommend consulting a doctor immediately.",
                 "doctors": doctors
             })
         else:
             return Response({
+                "abnormal": False,
+                "health_score": health_score,
+                "reasons": [],
+                "doctors": [],
                 "status": "NORMAL",
                 "message": "Your vitals are within the normal range. Keep up the good work!"
             })
@@ -113,6 +187,9 @@ class LatestVitalsView(APIView):
             else:
                 cursor.execute(sql_queries.GET_LATEST_VITALS)
                 data = dict_fetch_all(cursor)
+                # Add AI Insights for all patients
+                for patient_vitals in data:
+                    patient_vitals['health_score'] = calculate_health_score(patient_vitals)
             return Response(data)
 
 class HighRiskPatientsView(APIView):
@@ -124,6 +201,60 @@ class HighRiskPatientsView(APIView):
             data = dict_fetch_all(cursor)
             return Response(data)
 
+class GetHighRiskPatientsView(APIView):
+    def get(self, request):
+        threshold = request.query_params.get('threshold', 70)
+        with connection.cursor() as cursor:
+            cursor.execute(sql_queries.GET_HIGH_RISK_PATIENTS, [threshold])
+            patients = dict_fetch_all(cursor)
+            
+            # Add AI Insights
+            for p in patients:
+                # The score from DB might be different, let's unify with our AI score
+                p['ai_health_score'] = calculate_health_score(p)
+                
+        return Response(patients)
+
+class TriggerRemindersView(APIView):
+    """API to trigger email reminders for upcoming appointments"""
+    def post(self, request):
+        with connection.cursor() as cursor:
+            # Find appointments in the next 24 hours that haven't sent a reminder
+            cursor.execute("""
+                SELECT a.appointment_id, p.first_name, p.last_name, p.phone, u.email as patient_email, 
+                       a.appointment_date, a.slot_start, d.email as doctor_email
+                FROM appointments a
+                JOIN patients p ON a.patient_id = p.patient_id
+                JOIN users u ON p.phone = u.phone
+                JOIN users d ON a.doctor_id = d.user_id
+                WHERE a.appointment_date = CURRENT_DATE + INTERVAL '1 day'
+                AND a.reminder_sent = FALSE
+                AND a.status != 'CANCELLED'
+            """)
+            appointments = dict_fetch_all(cursor)
+            
+            sent_count = 0
+            for appt in appointments:
+                subject = "Reminder: Your Appointment at VibeCare tomorrow"
+                message = f"""
+                Hello {appt['first_name']},
+                
+                This is a reminder for your appointment tomorrow, {appt['appointment_date']}, at {appt['slot_start']}.
+                
+                Please be on time.
+                
+                Best regards,
+                VibeCare Hospital Team
+                """
+                try:
+                    send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [appt['patient_email']])
+                    cursor.execute("UPDATE appointments SET reminder_sent = TRUE WHERE appointment_id = %s", [appt['appointment_id']])
+                    sent_count += 1
+                except Exception as e:
+                    print(f"[REMINDER ERROR] {str(e)}")
+                    
+        return Response({"status": "success", "reminders_sent": sent_count})
+
 class DoctorScheduleView(APIView):
     """API to get doctor schedule summary"""
     def get(self, request, doctor_id):
@@ -132,8 +263,48 @@ class DoctorScheduleView(APIView):
             data = dict_fetch_all(cursor)
             return Response(data)
 
+class AddDoctorAvailabilityView(APIView):
+    """API to add availability for a doctor"""
+    def post(self, request):
+        doctor_id = request.data.get('doctor_id')
+        available_date = request.data.get('date')
+        slot_start = request.data.get('slot_start')
+        slot_end = request.data.get('slot_end')
+        max_patients = request.data.get('max_patients', 1)
+
+        if not all([doctor_id, available_date, slot_start, slot_end]):
+            return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if slot_start >= slot_end:
+            return Response({"error": "End time must be after start time."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with connection.cursor() as cursor:
+                # Overlap check: (s1 < e2 AND e1 > s2)
+                cursor.execute("""
+                    SELECT 1 FROM doctor_availability 
+                    WHERE doctor_id = %s 
+                      AND available_date = %s 
+                      AND (slot_start < %s AND slot_end > %s)
+                """, [doctor_id, available_date, slot_end, slot_start])
+                
+                if cursor.fetchone():
+                    return Response({"error": "This time slot overlaps with an existing availability."}, status=status.HTTP_400_BAD_REQUEST)
+
+                cursor.execute(sql_queries.ADD_AVAILABILITY, [
+                    doctor_id, available_date, slot_start, slot_end, max_patients
+                ])
+                result = dict_fetch_one(cursor)
+                return Response({
+                    "message": "Availability added successfully",
+                    "availability_id": result['availability_id']
+                }, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 class BookAppointmentView(APIView):
     """API to book an appointment and optionally generate user accounts"""
+    @transaction.atomic
     def post(self, request):
         patient_id = request.data.get('patient_id')
         doctor_id = request.data.get('doctor_id')
@@ -144,6 +315,7 @@ class BookAppointmentView(APIView):
         if not patient_id:
             name = request.data.get('name')
             phone = request.data.get('phone')
+            email = request.data.get('email')
             dob = request.data.get('dob', '1990-01-01')
             gender = request.data.get('gender', 'OTHER')
 
@@ -169,15 +341,18 @@ class BookAppointmentView(APIView):
 
                     # Create Patient
                     cursor.execute("""
-                        INSERT INTO patients (user_id, first_name, last_name, dob, gender, phone)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (phone) DO UPDATE SET user_id=EXCLUDED.user_id
+                        INSERT INTO patients (user_id, first_name, last_name, dob, gender, phone, primary_doctor_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (phone) DO UPDATE SET primary_doctor_id=EXCLUDED.primary_doctor_id
                         RETURNING patient_id
-                    """, [user_id, first_name, last_name, dob, gender, phone])
+                    """, [user_id, first_name, last_name, dob, gender, phone, doctor_id])
                     patient_id = dict_fetch_one(cursor)['patient_id']
 
-                    # Send WhatsApp
-                    send_whatsapp_message(phone, f"Hello {first_name}, your hospital account is created. Login with phone: {phone} and temp password: {temp_password}")
+                    # Update users table if email is provided (assuming email exists in users or adding it)
+                    if email:
+                        cursor.execute("UPDATE users SET email = %s WHERE user_id = %s", [email, user_id])
+
+                    # We will send credentials AFTER confirmed booking to avoid spamming if booking fails
             except Exception as e:
                 return Response({"error": "Failed to create patient account: " + str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -186,15 +361,27 @@ class BookAppointmentView(APIView):
 
         try:
             with connection.cursor() as cursor:
+                # First, verify if the slot is actually available (Server side check)
                 cursor.execute(sql_queries.BOOK_APPOINTMENT, [patient_id, doctor_id, date, slot_start])
                 result = dict_fetch_one(cursor)
+                
+                # If we registered a new user, send the email and return password
+                if not request.data.get('patient_id'):
+                    if email:
+                        send_credential_email(email, phone, temp_password, first_name)
+                
                 return Response({
                     "message": "Appointment booked successfully", 
                     "appointment_id": result['appointment_id'],
-                    "patient_id": patient_id
+                    "patient_id": patient_id,
+                    "credentials": {
+                        "phone": phone,
+                        "password": temp_password
+                    } if not request.data.get('patient_id') else None
                 }, status=status.HTTP_201_CREATED)
         except Exception as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            # If this fails, the @transaction.atomic will rollback the user creation too
+            return Response({"error": "Booking failed: " + str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 class CreateBillingView(APIView):
     """API to create billing for an appointment"""
@@ -330,14 +517,31 @@ class PatientDashboardView(APIView):
                 
                 patient_id = patient['patient_id']
 
+                # Assigned Doctor with fallback to latest appointment
                 cursor.execute("""
-                    SELECT u.email as name, u.specialization, u.phone 
-                    FROM users u WHERE u.user_id = %s
+                    SELECT COALESCE(u.first_name || ' ' || u.last_name, u.email) as full_name, 
+                           u.specialization, u.phone 
+                    FROM users u 
+                    WHERE u.user_id = %s
                 """, [patient['primary_doctor_id']])
                 assigned_doctor = dict_fetch_one(cursor)
 
+                if not assigned_doctor:
+                    # Fallback: Get the doctor from the latest appointment
+                    cursor.execute("""
+                        SELECT COALESCE(u.first_name || ' ' || u.last_name, u.email) as full_name, 
+                               u.specialization, u.phone
+                        FROM appointments a
+                        JOIN users u ON a.doctor_id = u.user_id
+                        WHERE a.patient_id = %s
+                        ORDER BY a.scheduled_at DESC
+                        LIMIT 1
+                    """, [patient_id])
+                    assigned_doctor = dict_fetch_one(cursor)
+
                 cursor.execute("""
-                    SELECT a.appointment_id, a.scheduled_at, a.status, a.reason, u.email as doctor_name
+                    SELECT a.appointment_id, a.scheduled_at, a.status, a.reason, 
+                           COALESCE(u.first_name || ' ' || u.last_name, u.email) as doctor_name
                     FROM appointments a
                     JOIN users u ON a.doctor_id = u.user_id
                     WHERE a.patient_id = %s
@@ -363,43 +567,434 @@ class PatientDashboardView(APIView):
                 """, [patient_id])
                 vitals = dict_fetch_all(cursor)
 
+                # Health Score from predictions
+                cursor.execute("""
+                    SELECT score, risk_level, generated_at
+                    FROM predictions
+                    WHERE patient_id = %s
+                    ORDER BY generated_at DESC
+                    LIMIT 1
+                """, [patient_id])
+                health_score = dict_fetch_one(cursor)
+
+                # Previous score for trend
+                cursor.execute("""
+                    SELECT score FROM predictions 
+                    WHERE patient_id = %s
+                    ORDER BY generated_at DESC
+                    LIMIT 1 OFFSET 1
+                """, [patient_id])
+                prev_score = dict_fetch_one(cursor)
+
+                # Medications
+                cursor.execute("""
+                    SELECT medication_id, name, dosage, frequency, instructions, is_active
+                    FROM medications
+                    WHERE patient_id = %s AND is_active = TRUE
+                    ORDER BY created_at DESC
+                """, [patient_id])
+                medications = dict_fetch_all(cursor)
+
+                # Recent Symptom Logs
+                cursor.execute("""
+                    SELECT log_id, mood, pain_level, notes, logged_at
+                    FROM symptom_logs
+                    WHERE patient_id = %s
+                    ORDER BY logged_at DESC
+                    LIMIT 10
+                """, [patient_id])
+                symptom_logs = dict_fetch_all(cursor)
+
                 return Response({
                     "profile": patient,
                     "assigned_doctor": assigned_doctor,
                     "appointments": appointments,
                     "billing": billing,
-                    "vitals_history": vitals
+                    "vitals_history": vitals,
+                    "health_score": health_score,
+                    "prev_score": prev_score,
+                    "medications": medications,
+                    "symptom_logs": symptom_logs
+                })
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AddSymptomLogView(APIView):
+    """API to add a new symptom/mood log"""
+    def post(self, request, patient_id):
+        try:
+            mood = request.data.get('mood')
+            pain_level = request.data.get('pain_level')
+            notes = request.data.get('notes')
+
+            if not mood or pain_level is None:
+                return Response({"error": "Mood and pain level are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO symptom_logs (patient_id, mood, pain_level, notes)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING log_id
+                """, [patient_id, mood, pain_level, notes])
+                
+                return Response({"message": "Log added successfully"}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class MedicationManagementView(APIView):
+    """API to manage patient medications"""
+    def post(self, request, patient_id):
+        try:
+            name = request.data.get('name')
+            dosage = request.data.get('dosage')
+            frequency = request.data.get('frequency')
+            instructions = request.data.get('instructions')
+
+            if not name:
+                return Response({"error": "Medication name is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO medications (patient_id, name, dosage, frequency, instructions)
+                    VALUES (%s, %s, %s, %s, %s)
+                """, [patient_id, name, dosage, frequency, instructions])
+                
+                return Response({"message": "Medication added successfully"}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def delete(self, request, medication_id):
+        # Soft delete by setting is_active = FALSE
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("UPDATE medications SET is_active = FALSE WHERE medication_id = %s", [medication_id])
+                return Response({"message": "Medication removed"})
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class UpdatePatientProfileView(APIView):
+    """API to update patient profile fields (phone, address)"""
+    def post(self, request, patient_id):
+        phone = request.data.get('phone')
+        address = request.data.get('address')
+
+        updates = []
+        params = []
+        if phone is not None:
+            updates.append("phone = %s")
+            params.append(phone)
+        if address is not None:
+            updates.append("address = %s")
+            params.append(address)
+
+        if not updates:
+            return Response({"error": "No fields to update"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            params.append(patient_id)
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"UPDATE patients SET {', '.join(updates)} WHERE patient_id = %s RETURNING patient_id",
+                    params
+                )
+                result = dict_fetch_one(cursor)
+                if not result:
+                    return Response({"error": "Patient not found"}, status=status.HTTP_404_NOT_FOUND)
+                return Response({"message": "Profile updated successfully"})
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PatientDetailForDoctorView(APIView):
+    """Full patient detail for doctor's patient detail view"""
+    def get(self, request, patient_id):
+        try:
+            with connection.cursor() as cursor:
+                # 1. Patient demographics
+                cursor.execute("""
+                    SELECT p.patient_id, p.first_name, p.last_name, p.dob, p.gender,
+                           p.phone, p.address, p.created_at, p.ward,
+                           COALESCE(u.first_name || ' ' || u.last_name, u.email) as primary_doctor_name,
+                           u.specialization as primary_doctor_specialization
+                    FROM patients p
+                    LEFT JOIN users u ON p.primary_doctor_id = u.user_id
+                    WHERE p.patient_id = %s
+                """, [patient_id])
+                patient = dict_fetch_one(cursor)
+                if not patient:
+                    return Response({"error": "Patient not found"}, status=status.HTTP_404_NOT_FOUND)
+
+                # 2. Full vitals history (last 20)
+                cursor.execute("""
+                    SELECT health_id, recorded_at, heart_rate,
+                           blood_pressure_systolic, blood_pressure_diastolic,
+                           temperature, glucose_level, oxygen_saturation
+                    FROM health_data
+                    WHERE patient_id = %s
+                    ORDER BY recorded_at DESC
+                    LIMIT 20
+                """, [patient_id])
+                vitals_history = dict_fetch_all(cursor)
+
+                # 3. Latest vitals
+                latest_vitals = vitals_history[0] if vitals_history else None
+
+                # 4. Health score history
+                cursor.execute("""
+                    SELECT prediction_id, score, risk_level, generated_at
+                    FROM predictions
+                    WHERE patient_id = %s
+                    ORDER BY generated_at DESC
+                    LIMIT 10
+                """, [patient_id])
+                predictions = dict_fetch_all(cursor)
+
+                # 5. Appointment history
+                cursor.execute("""
+                    SELECT a.appointment_id, a.scheduled_at, a.status, a.reason,
+                           COALESCE(u.first_name || ' ' || u.last_name, u.email) as doctor_name
+                    FROM appointments a
+                    JOIN users u ON a.doctor_id = u.user_id
+                    WHERE a.patient_id = %s
+                    ORDER BY a.scheduled_at DESC
+                """, [patient_id])
+                appointments = dict_fetch_all(cursor)
+
+                # 6. Billing summary
+                cursor.execute("""
+                    SELECT b.billing_id, b.total_amount, b.status, b.billed_at
+                    FROM billing b
+                    WHERE b.patient_id = %s
+                    ORDER BY b.billed_at DESC
+                    LIMIT 5
+                """, [patient_id])
+                billing = dict_fetch_all(cursor)
+
+                return Response({
+                    "patient": patient,
+                    "latest_vitals": latest_vitals,
+                    "vitals_history": vitals_history,
+                    "predictions": predictions,
+                    "appointments": appointments,
+                    "billing": billing
                 })
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class DoctorDashboardView(APIView):
-    """API for Doctor Dashboard data"""
+    """API for redesigned Doctor Dashboard data"""
     def get(self, request, user_id):
         try:
             with connection.cursor() as cursor:
-                cursor.execute("SELECT * FROM users WHERE user_id = %s AND role = 'DOCTOR'", [user_id])
-                if not dict_fetch_one(cursor):
+                # 1. Doctor Profile
+                cursor.execute("""
+                    SELECT first_name || ' ' || last_name as full_name, specialization 
+                    FROM users WHERE user_id = %s AND role = 'DOCTOR'
+                """, [user_id])
+                doctor_profile = dict_fetch_one(cursor)
+                if not doctor_profile:
                     return Response({"error": "Doctor not found"}, status=status.HTTP_404_NOT_FOUND)
 
+                # 2. Overview Metrics
+                # Active Patients (last 30 days)
                 cursor.execute("""
-                    SELECT patient_id, first_name, last_name, dob, gender, phone 
-                    FROM patients WHERE primary_doctor_id = %s
+                    SELECT COUNT(DISTINCT patient_id) as count 
+                    FROM appointments 
+                    WHERE doctor_id = %s AND scheduled_at >= NOW() - INTERVAL '30 days'
                 """, [user_id])
-                patients = dict_fetch_all(cursor)
+                active_patients = dict_fetch_one(cursor)['count']
 
+                # High Risk Patients (risk > 70, last 24h)
                 cursor.execute("""
-                    SELECT a.appointment_id, a.scheduled_at, a.status, a.reason, p.first_name, p.last_name, p.patient_id
+                    SELECT COUNT(DISTINCT patient_id) as count 
+                    FROM predictions 
+                    WHERE score > 70 AND generated_at >= NOW() - INTERVAL '24 hours'
+                """, [])
+                high_risk_count = dict_fetch_one(cursor)['count']
+
+                # Open Alerts (unacknowledged high/critical)
+                cursor.execute("""
+                    SELECT COUNT(*) as count FROM predictions 
+                    WHERE score >= 70 AND acknowledged = FALSE
+                """, [])
+                open_alerts_count = dict_fetch_one(cursor)['count']
+
+                # Today's Revenue
+                cursor.execute("""
+                    SELECT COALESCE(SUM(total_amount), 0) as total 
+                    FROM billing 
+                    WHERE billed_at >= CURRENT_DATE
+                """, [])
+                today_revenue = dict_fetch_one(cursor)['total']
+
+                # 3. Critical Alerts (Risk > 100)
+                cursor.execute("""
+                    SELECT 
+                        pr.prediction_id,
+                        p.patient_id, p.first_name || ' ' || p.last_name as name, p.ward,
+                        pr.score as risk_score,
+                        hd.heart_rate, hd.blood_pressure_systolic as bp_sys, 
+                        hd.blood_pressure_diastolic as bp_dia, hd.oxygen_saturation as spo2,
+                        hd.symptoms,
+                        (SELECT MIN(scheduled_at) FROM appointments WHERE patient_id = p.patient_id AND scheduled_at >= NOW()) as next_appointment
+                    FROM predictions pr
+                    JOIN patients p ON pr.patient_id = p.patient_id
+                    LEFT JOIN health_data hd ON pr.health_id = hd.health_id
+                    WHERE pr.score > 100 AND pr.acknowledged = FALSE
+                    ORDER BY pr.score DESC
+                """)
+                critical_alerts = dict_fetch_all(cursor)
+
+                # 4. High Priority Alerts (70-100)
+                cursor.execute("""
+                    SELECT 
+                        pr.prediction_id,
+                        p.patient_id, p.first_name || ' ' || p.last_name as name,
+                        pr.score as risk_score,
+                        'Declining trend' as trend_message
+                    FROM predictions pr
+                    JOIN patients p ON pr.patient_id = p.patient_id
+                    WHERE pr.score BETWEEN 70 AND 100 AND pr.acknowledged = FALSE
+                    ORDER BY pr.score DESC
+                """)
+                high_priority_alerts = dict_fetch_all(cursor)
+
+                # 5. Today's Schedule
+                cursor.execute("""
+                    SELECT 
+                        a.appointment_id, a.scheduled_at, a.status, a.reason, 
+                        p.first_name || ' ' || p.last_name as patient_name, p.patient_id
+                    FROM appointments a
+                    JOIN patients p ON a.patient_id = p.patient_id
+                    WHERE a.doctor_id = %s AND a.scheduled_at >= CURRENT_DATE AND a.scheduled_at < CURRENT_DATE + 1
+                    ORDER BY a.scheduled_at ASC
+                """, [user_id])
+                today_schedule = dict_fetch_all(cursor)
+
+                # 6. All Patients (for Patients tab)
+                cursor.execute("""
+                    SELECT DISTINCT ON (p.patient_id)
+                        p.patient_id, p.first_name, p.last_name, p.gender, p.dob, p.phone, p.address, p.created_at,
+                        hd.recorded_at, hd.heart_rate, hd.blood_pressure_systolic, hd.blood_pressure_diastolic,
+                        hd.temperature, hd.glucose_level, hd.oxygen_saturation,
+                        (SELECT score FROM predictions WHERE patient_id = p.patient_id ORDER BY generated_at DESC LIMIT 1) as health_score
+                    FROM patients p
+                    LEFT JOIN health_data hd ON p.patient_id = hd.patient_id
+                    ORDER BY p.patient_id, hd.recorded_at DESC;
+                """)
+                all_patients = dict_fetch_all(cursor)
+
+                # 7. All Appointments (for Appointments tab)
+                cursor.execute("""
+                    SELECT 
+                        a.appointment_id, a.scheduled_at, a.status, a.reason,
+                        p.first_name, p.last_name, p.patient_id
                     FROM appointments a
                     JOIN patients p ON a.patient_id = p.patient_id
                     WHERE a.doctor_id = %s
-                    ORDER BY a.scheduled_at ASC
+                    ORDER BY a.scheduled_at DESC
                 """, [user_id])
-                appointments = dict_fetch_all(cursor)
+                all_appointments = dict_fetch_all(cursor)
                 
                 return Response({
-                    "patients": patients,
-                    "appointments": appointments
+                    "doctor": doctor_profile,
+                    "metrics": {
+                        "active_patients": active_patients,
+                        "high_risk": high_risk_count,
+                        "open_alerts": open_alerts_count,
+                        "today_revenue": today_revenue
+                    },
+                    "alerts": {
+                        "critical": critical_alerts,
+                        "high_priority": high_priority_alerts
+                    },
+                    "today_schedule": today_schedule,
+                    "patients": all_patients,
+                    "appointments": all_appointments
                 })
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class AcknowledgeAlertView(APIView):
+    """API to acknowledge clinical alerts"""
+    def patch(self, request, prediction_id):
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("UPDATE predictions SET acknowledged = TRUE WHERE prediction_id = %s", [prediction_id])
+                return Response({"message": "Alert acknowledged successfully"})
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class DischargePatientView(APIView):
+    """API to discharge a patient: marks appointment COMPLETED + auto-generates billing"""
+    @transaction.atomic
+    def post(self, request, patient_id):
+        doctor_id        = request.data.get('doctor_id')
+        consultation_fee = float(request.data.get('consultation_fee', 500.00))
+        tax_rate         = float(request.data.get('tax_rate', 0.18))
+        discount_rate    = float(request.data.get('discount_rate', 0.0))
+        notes            = request.data.get('notes', '')
+        line_items       = request.data.get('line_items', [])  # [{description, quantity, unit_price}]
+
+        if not doctor_id:
+            return Response({"error": "doctor_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with connection.cursor() as cursor:
+                # Step 1: Call the stored function — creates/completes appointment + billing header
+                cursor.execute(sql_queries.DISCHARGE_PATIENT, [
+                    patient_id, doctor_id,
+                    consultation_fee, tax_rate, discount_rate,
+                    notes
+                ])
+                result = dict_fetch_one(cursor)
+                if not result:
+                    return Response({"error": "Discharge failed — no result returned"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+                billing_id     = result['billing_id']
+                appointment_id = result['appointment_id']
+                total_amount   = float(result['total_amount'])
+
+                # Step 2: Insert invoice line items
+                line_no = 1
+                for item in line_items:
+                    desc       = item.get('description', 'Service')
+                    quantity   = float(item.get('quantity', 1))
+                    unit_price = float(item.get('unit_price', 0))
+                    line_total = round(quantity * unit_price, 2)
+
+                    cursor.execute("""
+                        INSERT INTO invoices (billing_id, line_no, description, quantity, unit_price, line_total)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                    """, [billing_id, line_no, desc, quantity, unit_price, line_total])
+
+                    # Add the line item total to billing base + recompute total via trigger
+                    cursor.execute("""
+                        UPDATE billing
+                        SET base_amount  = base_amount  + %s,
+                            tax_amount   = ROUND((base_amount + %s) * %s, 2),
+                            total_amount = ROUND((base_amount + %s) * (1 + %s) - discount_amount, 2)
+                        WHERE billing_id = %s
+                    """, [line_total, line_total, tax_rate, line_total, tax_rate, billing_id])
+
+                    line_no += 1
+
+                # Fetch the final total after all line items
+                cursor.execute("SELECT total_amount FROM billing WHERE billing_id = %s", [billing_id])
+                final = dict_fetch_one(cursor)
+                final_total = float(final['total_amount']) if final else total_amount
+
+            return Response({
+                "message": "Patient discharged successfully",
+                "appointment_id": appointment_id,
+                "billing_id": billing_id,
+                "total_amount": final_total,
+                "invoice_count": len(line_items)
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)

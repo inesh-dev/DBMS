@@ -56,4 +56,49 @@ export const addVitals = async (vitalsData) => {
     return response.data;
 };
 
+export const getDoctorDashboard = async (userId) => {
+    const response = await api.get(`/dashboard/doctor/${userId}/`);
+    return response.data;
+};
+
+export const addDoctorAvailability = async (data) => {
+    const response = await api.post('/doctor-availability/add/', data);
+    return response.data;
+};
+
+export const dischargePatient = async (patientId, data) => {
+    const response = await api.post(`/patients/${patientId}/discharge/`, data);
+    return response.data;
+};
+
+export const acknowledgeAlert = async (predictionId) => {
+    const response = await api.patch(`/alerts/acknowledge/${predictionId}/`);
+    return response.data;
+};
+
+export const getPatientDetail = async (patientId) => {
+    const response = await api.get(`/patients/${patientId}/detail/`);
+    return response.data;
+};
+
+export const updatePatientProfile = async (patientId, data) => {
+    const response = await api.post(`/patients/${patientId}/profile/`, data);
+    return response.data;
+};
+
+export const addSymptomLog = async (patientId, data) => {
+    const response = await api.post(`/patients/${patientId}/symptoms/add/`, data);
+    return response.data;
+};
+
+export const addMedication = async (patientId, data) => {
+    const response = await api.post(`/patients/${patientId}/medications/`, data);
+    return response.data;
+};
+
+export const deleteMedication = async (medicationId) => {
+    const response = await api.delete(`/medications/${medicationId}/`);
+    return response.data;
+};
+
 export default api;

@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
 
 :root {
   --primary: #6366f1;
@@ -88,7 +89,8 @@ body {
   cursor: pointer;
 }
 
-.nav-link:hover, .nav-link.active {
+.nav-link:hover,
+.nav-link.active {
   background: rgba(99, 102, 241, 0.1);
   color: var(--primary);
 }
@@ -122,14 +124,32 @@ body {
   font-weight: 600;
 }
 
-.badge-high { background: rgba(239, 68, 68, 0.1); color: var(--danger); }
-.badge-medium { background: rgba(245, 158, 11, 0.1); color: var(--warning); }
-.badge-low { background: rgba(34, 197, 94, 0.1); color: var(--success); }
+.badge-high {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger);
+}
+
+.badge-medium {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--warning);
+}
+
+.badge-low {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--success);
+}
 
 /* Animation Classes */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .animate-fade-in {

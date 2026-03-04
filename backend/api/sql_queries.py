@@ -76,3 +76,16 @@ FROM patients p
 LEFT JOIN health_data hd ON p.patient_id = hd.patient_id
 ORDER BY p.patient_id, hd.recorded_at DESC;
 """
+
+# 11. Discharge a patient — complete appointment + create billing
+DISCHARGE_PATIENT = """
+SELECT * FROM fn_discharge_patient(%s, %s, %s, %s, %s, %s);
+"""
+
+# 12. Add doctor availability
+ADD_AVAILABILITY = """
+INSERT INTO doctor_availability (doctor_id, available_date, slot_start, slot_end, max_patients)
+VALUES (%s, %s, %s, %s, %s)
+RETURNING availability_id;
+"""
+
