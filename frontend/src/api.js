@@ -101,4 +101,13 @@ export const deleteMedication = async (medicationId) => {
     return response.data;
 };
 
+export const uploadLabReport = async (patientId, formData) => {
+    const response = await api.post(`/patients/${patientId}/lab-reports/`, formData, {
+        headers: {
+            'Content-Type': 'multipart/form-data',
+        },
+    });
+    return response.data;
+};
+
 export default api;

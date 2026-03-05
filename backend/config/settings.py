@@ -141,5 +141,9 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# Media files (Uploaded by users)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 # CORS Configuration
 CORS_ALLOW_ALL_ORIGINS = True

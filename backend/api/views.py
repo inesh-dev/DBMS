@@ -11,26 +11,75 @@ from . import sql_queries
 
 def send_credential_email(email, phone, password, user_name):
     subject = "Your VibeCare Hospital Account Credentials"
+
     message = f"""
-    Hello {user_name},
-    
-    Your account has been created at VibeCare Hospital.
-    
-    Login Details:
-    Phone: {phone}
-    Temporary Password: {password}
-    
-    Please log in and change your password at your earliest convenience.
-    
-    Best regards,
-    VibeCare Hospital Team
+Hello {user_name},
+
+Your account has been successfully created at VibeCare Hospital.
+
+Login Details:
+Phone: {phone}
+Temporary Password: {password}
+
+Please log in and change your password as soon as possible.
+
+Best regards,
+VibeCare Hospital Team
+"""
+
+    html_message = f"""
+    <div style="font-family: Arial, sans-serif; background-color:#f4f6f8; padding:30px;">
+        <div style="max-width:600px; margin:auto; background:white; padding:25px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+            
+            <h2 style="color:#2c7be5; text-align:center;">VibeCare Hospital</h2>
+            <hr>
+
+            <p>Dear <strong>{user_name}</strong>,</p>
+
+            <p>Your account has been successfully created at <strong>VibeCare Hospital</strong>.</p>
+
+            <div style="background:#f8f9fa; padding:15px; border-radius:6px; margin:20px 0;">
+                <h3 style="margin-top:0;">🔐 Login Credentials</h3>
+                <p><strong>Phone:</strong> {phone}</p>
+                <p><strong>Temporary Password:</strong> {password}</p>
+            </div>
+
+            <p style="color:#555;">
+                For security reasons, please log in and <strong>change your password immediately</strong>.
+            </p>
+
+            <p>
+                If you did not request this account, please contact the hospital administration.
+            </p>
+
+            <br>
+
+            <p>
+                Best regards,<br>
+                <strong>VibeCare Hospital Team</strong>
+            </p>
+
+            <hr>
+
+            <p style="font-size:12px; color:#888; text-align:center;">
+                This is an automated message. Please do not reply to this email.
+            </p>
+
+        </div>
+    </div>
     """
+
     try:
-        send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email])
+        send_mail(
+            subject,
+            message,
+            settings.DEFAULT_FROM_EMAIL,
+            [email],
+            html_message=html_message
+        )
         print(f"[EMAIL SENT] To {email}")
     except Exception as e:
         print(f"[EMAIL ERROR] {str(e)}")
-
 def dict_fetch_all(cursor):
     """Return all rows from a cursor as a list of dicts"""
     columns = [col[0] for col in cursor.description]
@@ -604,6 +653,18 @@ class PatientDashboardView(APIView):
                     LIMIT 10
                 """, [patient_id])
                 symptom_logs = dict_fetch_all(cursor)
+                # Lab Reports
+                cursor.execute("""
+                    SELECT report_id, title, file_path, uploaded_at,
+                           COALESCE(u.first_name || ' ' || u.last_name, u.email) as doctor_name
+                    FROM lab_reports r
+                    LEFT JOIN users u ON r.doctor_id = u.user_id
+                    WHERE r.patient_id = %s
+                    ORDER BY r.uploaded_at DESC
+                """, [patient_id])
+                lab_reports = dict_fetch_all(cursor)
+                for report in lab_reports:
+                    report['file_url'] = f"{settings.MEDIA_URL}{report['file_path']}"
 
                 return Response({
                     "profile": patient,
@@ -614,7 +675,8 @@ class PatientDashboardView(APIView):
                     "health_score": health_score,
                     "prev_score": prev_score,
                     "medications": medications,
-                    "symptom_logs": symptom_logs
+                    "symptom_logs": symptom_logs,
+                    "lab_reports": lab_reports
                 })
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -998,3 +1060,54 @@ class DischargePatientView(APIView):
 
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+import os
+from django.core.files.storage import FileSystemStorage
+
+class LabReportsView(APIView):
+    """API to manage patient lab reports"""
+    def get(self, request, patient_id):
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT r.report_id, r.patient_id, r.title, r.file_path, r.uploaded_at,
+                           COALESCE(u.first_name || ' ' || u.last_name, u.email) as doctor_name
+                    FROM lab_reports r
+                    LEFT JOIN users u ON r.doctor_id = u.user_id
+                    WHERE r.patient_id = %s
+                    ORDER BY r.uploaded_at DESC
+                """, [patient_id])
+                reports = dict_fetch_all(cursor)
+                
+                # Prepend media URL for easy access from frontend
+                for report in reports:
+                    report['file_url'] = f"{settings.MEDIA_URL}{report['file_path']}"
+                
+                return Response(reports)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def post(self, request, patient_id):
+        title = request.data.get('title')
+        file_obj = request.FILES.get('file')
+        doctor_id = request.data.get('doctor_id') # Optional
+
+        if not title or not file_obj:
+            return Response({"error": "Title and file are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # First write to filesystem
+            fs = FileSystemStorage()
+            filename = fs.save(f"lab_reports/patient_{patient_id}_{file_obj.name}", file_obj)
+            
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO lab_reports (patient_id, doctor_id, title, file_path)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING report_id
+                """, [patient_id, doctor_id, title, filename])
+                
+                return Response({"message": "Report uploaded successfully"}, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
