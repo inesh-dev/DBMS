@@ -7,7 +7,7 @@ import { AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 import { updatePatientProfile, addSymptomLog, addMedication, deleteMedication } from '../api';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from "jspdf-autotable";
 
 function PatientDashboard() {
     const [data, setData] = useState(null);
@@ -64,7 +64,7 @@ function PatientDashboard() {
         doc.text(`Patient: ${data.profile.first_name} ${data.profile.last_name}`, 15, 59);
         doc.setTextColor(bill.status === 'PAID' ? 34 : 234, bill.status === 'PAID' ? 197 : 179, bill.status === 'PAID' ? 94 : 8);
         doc.text(`Status: ${bill.status}`, 160, 45);
-        doc.autoTable({
+        autoTable(doc, {    
             startY: 70,
             head: [['Description', 'Amount']],
             body: [
@@ -111,7 +111,7 @@ function PatientDashboard() {
         const meds = data.medications || [];
         if (meds.length > 0) {
             const medBody = meds.map(m => [m.name, m.dosage, m.frequency, m.instructions || '']);
-            doc.autoTable({
+            autoTable(doc,{
                 startY: 125,
                 head: [['Medicine', 'Dosage', 'Frequency', 'Instructions']],
                 body: medBody,
@@ -275,34 +275,118 @@ function PatientDashboard() {
     };
 
     const handleDownloadHealthReport = () => {
-        const latestVitals = vitalsChartData[vitalsChartData.length - 1];
-        const assessment = generateClinicalAssessment(latestVitals);
-        const content = `
-VIBECARE HOSPITAL - PERSONAL HEALTH REPORT
-------------------------------------------
-Date: ${new Date().toLocaleDateString()}
-Patient: ${data.profile.first_name} ${data.profile.last_name}
-Patient ID: #${data.profile.patient_id}
+        try {
+            if (!vitalsChartData || vitalsChartData.length === 0) {
+                alert("No vitals data available to generate report.");
+                return;
+            }
 
-LATEST VITALS:
-- Heart Rate: ${latestVitals?.hr || 'N/A'} bpm
-- Blood Pressure: ${latestVitals?.sys || 'N/A'}/${latestVitals?.dia || 'N/A'} mmHg
-- Oxygen Saturation: ${latestVitals?.oxygen_saturation || 'N/A'}%
-- Glucose Level: ${latestVitals?.glucose || 'N/A'} mg/dL
+            const latestVitals = vitalsChartData[vitalsChartData.length - 1];
+            if (!latestVitals) {
+                alert("Unable to retrieve vitals data.");
+                return;
+            }
 
-AI HEALTH INSIGHTS:
-${assessment.length > 0 ? assessment.map(a => `- [${a.type.toUpperCase()}] ${a.text}`).join('\n') : 'No specific insights at this time.'}
+            const assessment = generateClinicalAssessment(latestVitals);
 
-HEALTH SCORE: ${Math.round(healthScore?.score || 0)}/100 (${healthScore?.risk_level || 'N/A'})
+            const doc = new jsPDF();
 
-DISCLAIMER: This report is for informational purposes only. Please consult your assigned doctor for official medical advice.
-`;
-        const blob = new Blob([content], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `health_report_${data.profile.patient_id}.txt`;
-        a.click();
+            // --- Header Section ---
+            doc.setFontSize(22);
+            doc.setTextColor(37, 99, 235); // Blue-600
+            doc.setFont(undefined, 'bold');
+            doc.text("VIBECARE HOSPITAL", 105, 20, { align: "center" });
+
+            doc.setFontSize(14);
+            doc.setTextColor(107, 114, 128); // Gray-500
+            doc.setFont(undefined, 'normal');
+            doc.text("Clinical Health Assessment Report", 105, 28, { align: "center" });
+
+            // --- Patient Info Section ---
+            doc.setDrawColor(229, 231, 235); // Gray-200
+            doc.line(15, 35, 195, 35);
+
+            doc.setFontSize(11);
+            doc.setTextColor(0, 0, 0);
+            doc.text(`Patient Name: ${data.profile.first_name} ${data.profile.last_name}`, 15, 45);
+            doc.text(`Patient ID: #${data.profile.patient_id}`, 15, 52);
+            doc.text(`Report Date: ${new Date().toLocaleDateString()}`, 130, 45);
+            doc.text(`Health Score: ${Math.round(healthScore?.score || 0)}/100`, 130, 52);
+
+            doc.line(15, 60, 195, 60);
+
+            // --- Latest Vitals Table ---
+            doc.setFontSize(14);
+            doc.setFont(undefined, 'bold');
+            doc.text("Latest Vital Readings", 15, 75);
+
+            const vitalsData = [
+                ['Metric', 'Value', 'Unit'],
+                ['Heart Rate', latestVitals?.hr || 'N/A', 'bpm'],
+                ['Blood Pressure', `${latestVitals?.sys || 'N/A'}/${latestVitals?.dia || 'N/A'}`, 'mmHg'],
+                ['Oxygen Saturation', latestVitals?.oxygen_saturation || 'N/A', '%'],
+                ['Glucose Level', latestVitals?.glucose || 'N/A', 'mg/dL']
+            ];
+
+            autoTable(doc,{
+                startY: 80,
+                head: [vitalsData[0]],
+                body: vitalsData.slice(1),
+                theme: 'striped',
+                headStyles: { fillColor: [37, 99, 235], fontStyle: 'bold' },
+                styles: { fontSize: 11, cellPadding: 5 },
+            });
+
+            // --- AI Health Insights ---
+            let finalY = doc.lastAutoTable.finalY + 15;
+            doc.setFontSize(14);
+            doc.setFont(undefined, 'bold');
+            doc.text("AI Health Insights", 15, finalY);
+
+            finalY += 8;
+            doc.setFontSize(11);
+            doc.setFont(undefined, 'normal');
+
+            if (assessment && assessment.length > 0) {
+                assessment.forEach((a) => {
+                    // Color coding based on type
+                    if (a.type === 'critical') doc.setTextColor(220, 38, 38); // Red
+                    else if (a.type === 'warning') doc.setTextColor(217, 119, 6); // Amber
+                    else doc.setTextColor(22, 163, 74); // Green
+
+                    const lines = doc.splitTextToSize(`• [${a.type.toUpperCase()}] ${a.text}`, 170);
+                    doc.text(lines, 20, finalY);
+                    finalY += (lines.length * 7);
+                });
+            } else {
+                doc.text("No specific clinical insights detected at this time.", 20, finalY);
+                finalY += 10;
+            }
+
+            // --- Footer Disclaimer ---
+            doc.setTextColor(156, 163, 175); // Gray-400
+            doc.setFontSize(9);
+            doc.setFont(undefined, 'italic');
+            const disclaimer = "DISCLAIMER: This AI-generated report is for informational purposes only. It is not a substitute for professional medical advice, diagnosis, or treatment. Please consult with your assigned physician for a comprehensive clinical evaluation.";
+            const disclaimerLines = doc.splitTextToSize(disclaimer, 180);
+
+            // Ensure footer is at bottom or enough space
+            if (finalY > 250) {
+                doc.addPage();
+                finalY = 20;
+            } else {
+                finalY = 270;
+            }
+
+            doc.text(disclaimerLines, 105, finalY, { align: "center" });
+            console.log("I am here")
+
+            doc.save(`Health_Report_${data.profile.patient_id}_${new Date().toISOString().split('T')[0]}.pdf`);
+            console.log("Report downloaded successfully");
+        } catch (error) {
+            console.error("Error generating health report:", error);
+            alert("Failed to generate report. Please check the browser console for details.");
+        }
     };
 
     // ─── Style tokens ────────────────────────────────────────────────────────────
