@@ -1,23 +1,20 @@
-# VibeMonitoring - Clinical Decision & Patient Monitoring System
+# VibeMonitoring - Clinical Monitoring System
 
-A modern, glassmorphic clinical monitoring dashboard built with Django and React.
-Includes an intelligent patient vitals checking gateway, automated doctor appointment scheduling, and dedicated Patient/Doctor dashboards.
+A modern clinical monitoring dashboard built with Django and React. This system helps track patient vitals and manage doctor appointments.
 
-## Project Structure
-- `/backend`: Django REST API with PostgreSQL (Raw SQL Architecture) & JWT Authentication.
-- `/frontend`: React + Vite + Framer Motion + Recharts + React Router.
+## Prerequisites
 
-## Getting Started: Step-by-Step Guide
-
-### 1. Software Requirements
-- **Python 3.10+** (Ensure `python3-venv` is installed on Linux)
+Before starting, ensure you have the following installed:
+- **Python 3.10+**
 - **Node.js 18+** & **npm**
 - **PostgreSQL 14+**
 
-### 2. Database Setup
-1. Open your terminal and create a PostgreSQL database named `monitoring_db`.
-2. Connect to the database and ensure you have a user with the correct permissions.
-3. Run the initialization scripts in the exact order below from the `/backend` folder:
+---
+
+## 1. Database Setup
+
+1. Create a PostgreSQL database named `monitoring_db`.
+2. Run the following initialization scripts from the `/backend` folder:
    ```bash
    cd backend
    psql -d monitoring_db -f db/schema.sql
@@ -27,46 +24,50 @@ Includes an intelligent patient vitals checking gateway, automated doctor appoin
    psql -d monitoring_db -f db/sample_data.sql
    ```
 
-### 3. Backend Setup (Virtual Environment & .env)
-The backend uses environment variables to securely connect to the database.
+## 2. Backend Setup
 
-1. Navigate to `/backend`:
+1. Navigate to the `/backend` directory:
    ```bash
    cd backend
    ```
-2. Create and activate a python virtual environment:
+2. Create and activate a virtual environment:
    ```bash
    python3 -m venv venv
-   source venv/bin/activate  # On Linux/macOS
-   # On Windows: venv\Scripts\activate
+   source venv/bin/activate  # On Windows use: venv\Scripts\activate
    ```
-3. Install the dependencies inside the virtual environment:
+3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-4. Configure Environment Variables:
-   - Copy the example `.env` file to establish your local settings.
-   ```bash
-   cp .env.example .env
-   ```
-   - Open `.env` and fill in your actual PostgreSQL credentials (DB_USER, DB_PASSWORD).
-
-5. Run Django migrations (for internal auth/admin):
+4. Configure environment variables:
+   - Create a `.env` file in the `backend` folder.
+   - Generate a secure `SECRET_KEY` by running:
+     ```bash
+     python3 -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
+     ```
+   - Copy the output and paste it into your `.env` file along with your database credentials:
+     ```env
+     SECRET_KEY=your_generated_key_here
+     DB_NAME=monitoring_db
+     DB_USER=your_postgres_user
+     DB_PASSWORD=your_postgres_password
+     DB_HOST=localhost
+     DB_PORT=5432
+     ```
+5. Apply migrations and start the server:
    ```bash
    python manage.py migrate
-   ```
-6. Start the Django Server:
-   ```bash
    python manage.py runserver
    ```
-   *The server will run on `http://127.0.0.1:8000/`*
+   *Backend runs at: http://127.0.0.1:8000/*
 
-### 4. Frontend Setup
-1. Open a **new terminal tab** and navigate to `/frontend`:
+## 3. Frontend Setup
+
+1. Open a new terminal and navigate to `/frontend`:
    ```bash
    cd frontend
    ```
-2. Install Node dependencies:
+2. Install dependencies:
    ```bash
    npm install
    ```
@@ -74,22 +75,12 @@ The backend uses environment variables to securely connect to the database.
    ```bash
    npm run dev
    ```
+   *Frontend runs at: http://localhost:5173/*
 
-### 5. Pushing to GitHub
-Because we have configured the `.gitignore` files efficiently, secrets and environments won't leak.
-1. Run `git status` to verify `venv/` and `.env` are ignored.
-2. Commit and push:
-   ```bash
-   git add .
-   git commit -m "Initial commit: Complete Hospital Vitals System"
-   git branch -M main
-   git remote add origin <your-github-repo-url>
-   git push -u origin main
-   ```
+---
 
-## Key Features
-- **Dynamic AI Vitals Checker**: Real-time evaluation against clinical thresholds.
-- **Automated Bookings & WhatsApp**: Auto-generate user profiles and dispatch credentials.
-- **Real-time Vitals Dashboards**: Charts of heart rate, BP, glucose, and more.
-- **Role-based Auth (JWT)**: Secure separated dashboards for Patients and Doctors.
-- **Raw SQL Architecture**: Direct database control for clinical data modeling.
+## Technical Features
+- **Patient Dashboard**: View real-time vitals and reports.
+- **Doctor Dashboard**: Manage patient records and schedules.
+- **Raw SQL Architecture**: Uses direct SQL for high-performance clinical data management.
+- **JWT Authentication**: Secure login for both doctors and patients.
