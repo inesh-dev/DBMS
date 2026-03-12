@@ -112,7 +112,7 @@ function PatientDashboard() {
         doc.text("Rx. Medications Required", 15, 120);
         const meds = data.medications || [];
         if (meds.length > 0) {
-            const medBody = meds.map(m => [m.name, m.dosage, m.frequency, m.instructions || '']);
+            const mgitdBody = meds.map(m => [m.name, m.dosage, m.frequency, m.instructions || '']);
             autoTable(doc,{
                 startY: 125,
                 head: [['Medicine', 'Dosage', 'Frequency', 'Instructions']],
