@@ -23,7 +23,7 @@ CREATE TABLE users (
     password_hash   VARCHAR(255) NOT NULL,
     role            VARCHAR(20)  NOT NULL,
     specialization  VARCHAR(100),
-    experience_years INTEGER DEFAULT 0,
+    experience_years INTEGER DEFAULT 5,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
     CONSTRAINT users_role_chk CHECK (role IN ('PATIENT', 'DOCTOR', 'ADMIN'))

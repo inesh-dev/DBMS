@@ -1,0 +1,45 @@
+Watching for file changes with StatReloader
+Bad Request: /api/appointments/book/
+[12/Mar/2026 12:23:47] "POST /api/appointments/book/ HTTP/1.1" 400 179
+Bad Request: /api/appointments/book/
+[12/Mar/2026 12:24:53] "POST /api/appointments/book/ HTTP/1.1" 400 179
+Bad Request: /api/appointments/book/
+[12/Mar/2026 12:26:18] "POST /api/appointments/book/ HTTP/1.1" 400 207
+Bad Request: /api/appointments/book/
+[12/Mar/2026 12:28:02] "POST /api/appointments/book/ HTTP/1.1" 400 181
+Forbidden (CSRF cookie not set.): /api/appointments/availability/
+[12/Mar/2026 12:28:26] "POST /api/appointments/availability/ HTTP/1.1" 403 2855
+Bad Request: /api/appointments/book/
+[12/Mar/2026 12:28:35] "POST /api/appointments/book/ HTTP/1.1" 400 207
+/home/ishan/Music/DBMS Vibe coded/backend/api/views.py changed, reloading.
+Performing system checks...
+
+[ML MODEL] risk_predictor.pkl loaded successfully from /home/ishan/Music/DBMS Vibe coded/backend/model/risk_predictor.pkl
+System check identified no issues (0 silenced).
+
+You have 18 unapplied migration(s). Your project may not work properly until you apply the migrations for app(s): admin, auth, contenttypes, sessions.
+Run 'python manage.py migrate' to apply them.
+March 12, 2026 - 12:23:43
+Django version 6.0.3, using settings 'config.settings'
+Starting development server at http://127.0.0.1:8000/
+Quit the server with CONTROL-C.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/6.0/howto/deployment/
+Watching for file changes with StatReloader
+/home/ishan/Music/DBMS Vibe coded/backend/api/views.py changed, reloading.
+Performing system checks...
+
+[ML MODEL] risk_predictor.pkl loaded successfully from /home/ishan/Music/DBMS Vibe coded/backend/model/risk_predictor.pkl
+System check identified no issues (0 silenced).
+
+You have 18 unapplied migration(s). Your project may not work properly until you apply the migrations for app(s): admin, auth, contenttypes, sessions.
+Run 'python manage.py migrate' to apply them.
+March 12, 2026 - 12:40:01
+Django version 6.0.3, using settings 'config.settings'
+Starting development server at http://127.0.0.1:8000/
+Quit the server with CONTROL-C.
+
+WARNING: This is a development server. Do not use it in a production setting. Use a production WSGI or ASGI server instead.
+For more information on production servers see: https://docs.djangoproject.com/en/6.0/howto/deployment/
+Watching for file changes with StatReloader

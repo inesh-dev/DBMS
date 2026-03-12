@@ -5,8 +5,8 @@ BEGIN;
 -- 1. Sample Users (Doctors)
 -- Note: password_hash is just a placeholder here
 INSERT INTO users (first_name, last_name, phone, email, password_hash, role, specialization, experience_years) VALUES
-('Dr. Emily', 'Smith', '555-1001', 'dr.smith@hospital.com', 'pbkdf2_sha256$1200000$g12KCNpopJRoVaKAwdABBz$iAU6Ep4XIDKoPsrk2TaQLEjGreLoQsbdPGhCqrpZAA4=', 'DOCTOR', 'Cardiology', 12),
-('Dr. Michael', 'Jones', '555-1002', 'dr.jones@hospital.com', 'pbkdf2_sha256$1200000$g12KCNpopJRoVaKAwdABBz$iAU6Ep4XIDKoPsrk2TaQLEjGreLoQsbdPGhCqrpZAA4=', 'DOCTOR', 'Internal Medicine', 8),
+('Dr. Emily', 'Smith', '555-1001', 'dr.smith@hospital.com', 'pbkdf2_sha256$1200000$g12KCNpopJRoVaKAwdABBz$iAU6Ep4XIDKoPsrk2TaQLEjGreLoQsbdPGhCqrpZAA4=', 'DOCTOR', 'Cardiology', 5),
+('Dr. Michael', 'Jones', '555-1002', 'dr.jones@hospital.com', 'pbkdf2_sha256$1200000$g12KCNpopJRoVaKAwdABBz$iAU6Ep4XIDKoPsrk2TaQLEjGreLoQsbdPGhCqrpZAA4=', 'DOCTOR', 'Internal Medicine', 5),
 ('System', 'Admin', '555-0000', 'admin@hospital.com', 'pbkdf2_sha256$1200000$g12KCNpopJRoVaKAwdABBz$iAU6Ep4XIDKoPsrk2TaQLEjGreLoQsbdPGhCqrpZAA4=', 'ADMIN', NULL, 0),
 ('John', 'Doe', '555-0101', 'john.doe@example.com', 'pbkdf2_sha256$1200000$g12KCNpopJRoVaKAwdABBz$iAU6Ep4XIDKoPsrk2TaQLEjGreLoQsbdPGhCqrpZAA4=', 'PATIENT', NULL, 0);
 

@@ -1,0 +1,1 @@
+{"error":"Failed to create patient account: duplicate key value violates unique constraint \"users_email_key\"\nDETAIL:  Key (email)=(ishanpokhrel16@gmail.com) already exists.\n"}

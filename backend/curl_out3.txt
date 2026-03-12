@@ -1,0 +1,1 @@
+{"error":"Booking failed: Slot is fully booked (availability_id=2)\nCONTEXT:  PL/pgSQL function fn_book_appointment(integer,integer,date,time without time zone) line 28 at RAISE\n"}

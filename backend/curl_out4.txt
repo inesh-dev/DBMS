@@ -1,0 +1,1 @@
+{"error":"Booking failed: No availability found for doctor 1, date 2026-03-22, slot 09:00:00\nCONTEXT:  PL/pgSQL function fn_book_appointment(integer,integer,date,time without time zone) line 17 at RAISE\n"}

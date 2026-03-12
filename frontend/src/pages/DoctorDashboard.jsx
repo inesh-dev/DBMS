@@ -423,20 +423,7 @@ function PatientsView({ patients, onSelect, onAddClick }) {
                   <div style={{ fontSize: 10, color: T.slate400, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 2 }}>MRN #{p.patient_id}</div>
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <div>
-                  <div style={{ fontSize: 9, color: T.slate400, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 5 }}>Health Index</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <div style={{ width: 7, height: 7, borderRadius: '50%', background: scoreColor }} />
-                    <span style={{ fontSize: 13, fontWeight: 800, color: T.slate900 }}>{score}%</span>
-                  </div>
-                </div>
-                {score < 65 && <span style={{ padding: '3px 10px', borderRadius: 99, fontSize: 9, fontWeight: 800, background: T.rose50, color: T.rose600, border: `1px solid ${T.rose100}`, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Critical</span>}
-              </div>
-              <div style={{ height: 4, background: T.slate100, borderRadius: 99, marginBottom: 14, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${Math.min(score, 100)}%`, background: scoreColor, borderRadius: 99, transition: 'width .8s' }} />
-              </div>
-              <div style={{ fontSize: 11, color: T.slate400, marginBottom: 16, fontWeight: 500 }}>
+              <div style={{ fontSize: 11, color: T.slate400, marginBottom: 16, fontWeight: 500, marginTop: 12 }}>
                 {p.recorded_at ? `Last vitals ${new Date(p.recorded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : 'No vitals recorded'}
               </div>
               <button onClick={() => onSelect(p)}

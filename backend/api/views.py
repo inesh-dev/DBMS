@@ -633,14 +633,13 @@ class BookAppointmentView(APIView):
                     first_name = names[0]
                     last_name = names[1] if len(names) > 1 else ''
 
-                    # Create User
+                    # Create User (or get existing by phone)
                     cursor.execute("""
                         INSERT INTO users (phone, first_name, last_name, password_hash, role)
                         VALUES (%s, %s, %s, %s, 'PATIENT')
                         ON CONFLICT (phone) DO UPDATE SET 
                             first_name=EXCLUDED.first_name,
-                            last_name=EXCLUDED.last_name,
-                            password_hash=EXCLUDED.password_hash
+                            last_name=EXCLUDED.last_name
                         RETURNING user_id
                     """, [phone, first_name, last_name, hashed_pwd])
                     user_id = dict_fetch_one(cursor)['user_id']
@@ -654,9 +653,15 @@ class BookAppointmentView(APIView):
                     """, [user_id, first_name, last_name, dob, gender, phone, doctor_id])
                     patient_id = dict_fetch_one(cursor)['patient_id']
 
-                    # Update users table if email is provided (assuming email exists in users or adding it)
+                    # Update email only if not already taken by another user
                     if email:
-                        cursor.execute("UPDATE users SET email = %s WHERE user_id = %s", [email, user_id])
+                        cursor.execute("""
+                            UPDATE users SET email = %s 
+                            WHERE user_id = %s 
+                              AND NOT EXISTS (
+                                SELECT 1 FROM users WHERE email = %s AND user_id != %s
+                              )
+                        """, [email, user_id, email, user_id])
 
                     # We will send credentials AFTER confirmed booking to avoid spamming if booking fails
             except Exception as e:
@@ -675,16 +680,12 @@ class BookAppointmentView(APIView):
                 if not request.data.get('patient_id'):
                     if email:
                         try:
-                            # Send email in background to avoid blocking and potential timeouts
-                            email_thread = threading.Thread(
-                                target=send_credential_email,
-                                args=(email, phone, temp_password, first_name)
-                            )
-                            email_thread.daemon = True
-                            email_thread.start()
-                            logger.info(f"Background email thread started for {email}")
+                            # Send email synchronously to ensure delivery
+                            send_credential_email(email, phone, temp_password, first_name)
+                            logger.info(f"Credential email sent to {email}")
                         except Exception as e:
-                            logger.error(f"Failed to start email thread: {str(e)}")
+                            logger.error(f"Failed to send email: {str(e)}")
+                            # Don't fail the booking just because email failed
                 
                 return Response({
                     "message": "Appointment booked successfully", 
