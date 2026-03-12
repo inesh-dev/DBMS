@@ -28,6 +28,7 @@ function PatientDashboard() {
             });
         } catch (err) {
             console.error("Failed to load dashboard data", err);
+            setData({ error: err.response?.data?.error || "Failed to load dashboard. The medical database might be undergoing maintenance." });
         }
     };
 
