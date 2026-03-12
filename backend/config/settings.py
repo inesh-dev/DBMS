@@ -14,6 +14,9 @@ from pathlib import Path
 
 import environ
 
+import dj_database_url
+import os
+
 env = environ.Env(
     DEBUG=(bool, False)
 )
@@ -104,7 +107,10 @@ DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='Sahara Hospital <noreply
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 DATABASES = {
-    'default': env.db('DATABASE_URL', default=f"postgres://{env('DB_USER')}:{env('DB_PASSWORD')}@{env('DB_HOST')}:{env('DB_PORT')}/{env('DB_NAME')}")
+'default': dj_database_url.config(
+default=os.environ.get('DATABASE_URL'),
+conn_max_age=600
+)
 }
 
 
