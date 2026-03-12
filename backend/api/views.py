@@ -11,7 +11,11 @@ import numpy as np
 import pandas as pd
 import joblib
 from django.contrib.auth.hashers import make_password
+import threading
+import logging
 from . import sql_queries
+
+logger = logging.getLogger(__name__)
 
 # ─── ML Model Loading ────────────────────────────────────────────────────────
 # Load the trained scikit-learn pipeline once at server startup.
@@ -670,7 +674,17 @@ class BookAppointmentView(APIView):
                 # If we registered a new user, send the email and return password
                 if not request.data.get('patient_id'):
                     if email:
-                        send_credential_email(email, phone, temp_password, first_name)
+                        try:
+                            # Send email in background to avoid blocking and potential timeouts
+                            email_thread = threading.Thread(
+                                target=send_credential_email,
+                                args=(email, phone, temp_password, first_name)
+                            )
+                            email_thread.daemon = True
+                            email_thread.start()
+                            logger.info(f"Background email thread started for {email}")
+                        except Exception as e:
+                            logger.error(f"Failed to start email thread: {str(e)}")
                 
                 return Response({
                     "message": "Appointment booked successfully", 
