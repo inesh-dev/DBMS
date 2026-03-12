@@ -625,45 +625,66 @@ class BookAppointmentView(APIView):
             if not name or not phone:
                 return Response({"error": "Name and phone are required for new patients"}, status=status.HTTP_400_BAD_REQUEST)
 
+            is_returning_patient = False
             try:
                 with connection.cursor() as cursor:
-                    temp_password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
-                    hashed_pwd = make_password(temp_password)
-                    names = name.split(' ', 1)
-                    first_name = names[0]
-                    last_name = names[1] if len(names) > 1 else ''
+                    # Check if patient already exists by phone
+                    cursor.execute("SELECT user_id FROM users WHERE phone = %s AND role = 'PATIENT'", [phone])
+                    existing_user = cursor.fetchone()
 
-                    # Create User (or get existing by phone)
-                    cursor.execute("""
-                        INSERT INTO users (phone, first_name, last_name, password_hash, role)
-                        VALUES (%s, %s, %s, %s, 'PATIENT')
-                        ON CONFLICT (phone) DO UPDATE SET 
-                            first_name=EXCLUDED.first_name,
-                            last_name=EXCLUDED.last_name
-                        RETURNING user_id
-                    """, [phone, first_name, last_name, hashed_pwd])
-                    user_id = dict_fetch_one(cursor)['user_id']
+                    if existing_user:
+                        # Returning patient — reuse existing user and patient
+                        is_returning_patient = True
+                        user_id = existing_user[0]
+                        cursor.execute("SELECT patient_id FROM patients WHERE phone = %s", [phone])
+                        existing_patient = cursor.fetchone()
+                        if existing_patient:
+                            patient_id = existing_patient[0]
+                            # Update primary doctor to the new booking's doctor
+                            cursor.execute("UPDATE patients SET primary_doctor_id = %s WHERE patient_id = %s", [doctor_id, patient_id])
+                        else:
+                            # User exists but no patient record (edge case) — create patient
+                            names = name.split(' ', 1)
+                            first_name = names[0]
+                            last_name = names[1] if len(names) > 1 else ''
+                            cursor.execute("""
+                                INSERT INTO patients (user_id, first_name, last_name, dob, gender, phone, primary_doctor_id)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                                RETURNING patient_id
+                            """, [user_id, first_name, last_name, dob, gender, phone, doctor_id])
+                            patient_id = dict_fetch_one(cursor)['patient_id']
+                    else:
+                        # New patient — create user + patient + generate credentials
+                        temp_password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+                        hashed_pwd = make_password(temp_password)
+                        names = name.split(' ', 1)
+                        first_name = names[0]
+                        last_name = names[1] if len(names) > 1 else ''
 
-                    # Create Patient
-                    cursor.execute("""
-                        INSERT INTO patients (user_id, first_name, last_name, dob, gender, phone, primary_doctor_id)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (phone) DO UPDATE SET primary_doctor_id=EXCLUDED.primary_doctor_id
-                        RETURNING patient_id
-                    """, [user_id, first_name, last_name, dob, gender, phone, doctor_id])
-                    patient_id = dict_fetch_one(cursor)['patient_id']
-
-                    # Update email only if not already taken by another user
-                    if email:
                         cursor.execute("""
-                            UPDATE users SET email = %s 
-                            WHERE user_id = %s 
-                              AND NOT EXISTS (
-                                SELECT 1 FROM users WHERE email = %s AND user_id != %s
-                              )
-                        """, [email, user_id, email, user_id])
+                            INSERT INTO users (phone, first_name, last_name, password_hash, role)
+                            VALUES (%s, %s, %s, %s, 'PATIENT')
+                            RETURNING user_id
+                        """, [phone, first_name, last_name, hashed_pwd])
+                        user_id = dict_fetch_one(cursor)['user_id']
 
-                    # We will send credentials AFTER confirmed booking to avoid spamming if booking fails
+                        cursor.execute("""
+                            INSERT INTO patients (user_id, first_name, last_name, dob, gender, phone, primary_doctor_id)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                            RETURNING patient_id
+                        """, [user_id, first_name, last_name, dob, gender, phone, doctor_id])
+                        patient_id = dict_fetch_one(cursor)['patient_id']
+
+                        # Update email only if not already taken by another user
+                        if email:
+                            cursor.execute("""
+                                UPDATE users SET email = %s 
+                                WHERE user_id = %s 
+                                  AND NOT EXISTS (
+                                    SELECT 1 FROM users WHERE email = %s AND user_id != %s
+                                  )
+                            """, [email, user_id, email, user_id])
+
             except Exception as e:
                 return Response({"error": "Failed to create patient account: " + str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -676,8 +697,8 @@ class BookAppointmentView(APIView):
                 cursor.execute(sql_queries.BOOK_APPOINTMENT, [patient_id, doctor_id, date, slot_start])
                 result = dict_fetch_one(cursor)
                 
-                # If we registered a new user, send the email and return password
-                if not request.data.get('patient_id'):
+                # Only send credentials for brand new patients
+                if not request.data.get('patient_id') and not is_returning_patient:
                     if email:
                         try:
                             # Send email synchronously to ensure delivery
@@ -687,15 +708,23 @@ class BookAppointmentView(APIView):
                             logger.error(f"Failed to send email: {str(e)}")
                             # Don't fail the booking just because email failed
                 
-                return Response({
+                response_data = {
                     "message": "Appointment booked successfully", 
                     "appointment_id": result['appointment_id'],
                     "patient_id": patient_id,
-                    "credentials": {
-                        "phone": phone,
-                        "password": temp_password
-                    } if not request.data.get('patient_id') else None
-                }, status=status.HTTP_201_CREATED)
+                }
+                
+                if not request.data.get('patient_id'):
+                    if is_returning_patient:
+                        response_data["returning_patient"] = True
+                        response_data["message"] = "Welcome back! Appointment booked. Use your existing credentials to log in."
+                    else:
+                        response_data["credentials"] = {
+                            "phone": phone,
+                            "password": temp_password
+                        }
+                
+                return Response(response_data, status=status.HTTP_201_CREATED)
         except Exception as e:
             # If this fails, the @transaction.atomic will rollback the user creation too
             return Response({"error": "Booking failed: " + str(e)}, status=status.HTTP_400_BAD_REQUEST)
