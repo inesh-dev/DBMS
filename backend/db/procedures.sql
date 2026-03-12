@@ -180,32 +180,19 @@ DECLARE
     v_bill_id      INTEGER;
     v_total        NUMERIC;
 BEGIN
-    -- 1. Look for an active (SCHEDULED) appointment today
+    -- 1. Look for an active (SCHEDULED) appointment (might be from a previous day)
     SELECT a.appointment_id INTO v_appt_id
     FROM appointments a
     WHERE a.patient_id = p_patient_id 
       AND a.doctor_id = p_doctor_id
       AND a.status = 'SCHEDULED'
-      AND a.scheduled_at::date = CURRENT_DATE
+    ORDER BY a.scheduled_at DESC
     LIMIT 1;
 
-    -- 2. If no appointment, we must create a "virtual" one or error. 
-    -- For simplicity, let's auto-create a completed one if missing
+    -- 2. If no appointment, create a "walk-in" one for today
     IF v_appt_id IS NULL THEN
-        -- Find any availability for today or just create a dummy one if your schema allows
-        -- Here we'll just error if no appointment was found to be safe, 
-        -- OR we can look for the first availability of this doctor today.
-        SELECT availability_id INTO v_appt_id 
-        FROM doctor_availability 
-        WHERE doctor_id = p_doctor_id AND available_date = CURRENT_DATE 
-        LIMIT 1;
-
-        IF v_appt_id IS NULL THEN
-             RAISE EXCEPTION 'No appointment or availability found for discharge today.';
-        END IF;
-
         INSERT INTO appointments (patient_id, doctor_id, availability_id, scheduled_at, status, reason)
-        VALUES (p_patient_id, p_doctor_id, v_appt_id, NOW(), 'COMPLETED', p_notes)
+        VALUES (p_patient_id, p_doctor_id, NULL, NOW(), 'COMPLETED', p_notes)
         RETURNING appointments.appointment_id INTO v_appt_id;
     ELSE
         UPDATE appointments SET status = 'COMPLETED', reason = p_notes 

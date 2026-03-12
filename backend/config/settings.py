@@ -39,7 +39,11 @@ DEBUG = env('DEBUG', default=False)
 
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['*'])
 
-CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=['https://*.onrender.com'])
+CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[
+    'https://sahara-backend.onrender.com',
+    'https://dbms-gvz8.onrender.com',
+    'https://*.onrender.com',
+])
 
 
 # Application definition

@@ -608,7 +608,15 @@ class BookAppointmentView(APIView):
             phone = request.data.get('phone')
             email = request.data.get('email')
             dob = request.data.get('dob', '1990-01-01')
-            gender = request.data.get('gender', 'OTHER')
+            
+            # Map gender inputs ('0'/'1' or case-insensitive strings) to DB constraints
+            raw_gender = str(request.data.get('gender', 'OTHER')).upper()
+            if raw_gender in ('0', 'FEMALE'):
+                gender = 'FEMALE'
+            elif raw_gender in ('1', 'MALE'):
+                gender = 'MALE'
+            else:
+                gender = 'OTHER'
 
             if not name or not phone:
                 return Response({"error": "Name and phone are required for new patients"}, status=status.HTTP_400_BAD_REQUEST)
@@ -623,11 +631,14 @@ class BookAppointmentView(APIView):
 
                     # Create User
                     cursor.execute("""
-                        INSERT INTO users (phone, password_hash, role)
-                        VALUES (%s, %s, 'PATIENT')
-                        ON CONFLICT (phone) DO UPDATE SET password_hash=EXCLUDED.password_hash
+                        INSERT INTO users (phone, first_name, last_name, password_hash, role)
+                        VALUES (%s, %s, %s, %s, 'PATIENT')
+                        ON CONFLICT (phone) DO UPDATE SET 
+                            first_name=EXCLUDED.first_name,
+                            last_name=EXCLUDED.last_name,
+                            password_hash=EXCLUDED.password_hash
                         RETURNING user_id
-                    """, [phone, hashed_pwd])
+                    """, [phone, first_name, last_name, hashed_pwd])
                     user_id = dict_fetch_one(cursor)['user_id']
 
                     # Create Patient

@@ -16,11 +16,14 @@ DROP TABLE IF EXISTS users CASCADE;
 -- USERS: doctors and admins
 CREATE TABLE users (
     user_id         SERIAL PRIMARY KEY,
+    first_name      VARCHAR(100),
+    last_name       VARCHAR(100),
     phone           VARCHAR(20) UNIQUE,
     email           VARCHAR(255) UNIQUE,
     password_hash   VARCHAR(255) NOT NULL,
     role            VARCHAR(20)  NOT NULL,
     specialization  VARCHAR(100),
+    experience_years INTEGER DEFAULT 0,
     created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
 
     CONSTRAINT users_role_chk CHECK (role IN ('PATIENT', 'DOCTOR', 'ADMIN'))
@@ -41,6 +44,7 @@ CREATE TABLE patients (
     address             TEXT,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     primary_doctor_id   INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+    ward                VARCHAR(100),
 
     CONSTRAINT patients_gender_chk CHECK (gender IN ('MALE', 'FEMALE', 'OTHER'))
 );
@@ -60,6 +64,7 @@ CREATE TABLE health_data (
     temperature             NUMERIC(4,1),
     glucose_level           NUMERIC(6,2),
     oxygen_saturation       NUMERIC(5,2),
+    symptoms                TEXT,
 
     CONSTRAINT health_data_patient_recorded_uniq UNIQUE (patient_id, recorded_at),
     CONSTRAINT health_data_heart_rate_chk CHECK (heart_rate IS NULL OR heart_rate > 0),
@@ -81,6 +86,7 @@ CREATE TABLE predictions (
     risk_level      VARCHAR(10) NOT NULL,
     score           NUMERIC(5,2) NOT NULL,
     model_name      VARCHAR(100) NOT NULL,
+    acknowledged    BOOLEAN NOT NULL DEFAULT FALSE,
     generated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     CONSTRAINT predictions_risk_level_chk CHECK (risk_level IN ('LOW', 'MEDIUM', 'MODERATE', 'HIGH', 'CRITICAL')),
@@ -113,7 +119,7 @@ CREATE TABLE appointments (
     appointment_id  SERIAL PRIMARY KEY,
     patient_id      INTEGER NOT NULL REFERENCES patients(patient_id) ON DELETE CASCADE,
     doctor_id       INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
-    availability_id INTEGER NOT NULL REFERENCES doctor_availability(availability_id) ON DELETE RESTRICT,
+    availability_id INTEGER REFERENCES doctor_availability(availability_id) ON DELETE RESTRICT,
     scheduled_at    TIMESTAMPTZ NOT NULL,
     status          VARCHAR(20) NOT NULL DEFAULT 'SCHEDULED',
     reason          TEXT,
@@ -166,6 +172,50 @@ CREATE TABLE invoices (
 );
 
 CREATE INDEX idx_invoices_billing ON invoices(billing_id);
+
+
+-- MEDICATIONS
+CREATE TABLE medications (
+    medication_id       SERIAL PRIMARY KEY,
+    patient_id          INTEGER NOT NULL REFERENCES patients(patient_id) ON DELETE CASCADE,
+    doctor_id           INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+    name                VARCHAR(255) NOT NULL,
+    dosage              VARCHAR(100),
+    frequency           VARCHAR(100),
+    instructions        TEXT,
+    is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_medications_patient ON medications(patient_id);
+
+
+-- SYMPTOM LOGS (Patient-reported)
+CREATE TABLE symptom_logs (
+    log_id              SERIAL PRIMARY KEY,
+    patient_id          INTEGER NOT NULL REFERENCES patients(patient_id) ON DELETE CASCADE,
+    mood                VARCHAR(50),
+    pain_level          INTEGER,
+    notes               TEXT,
+    logged_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT symptom_logs_pain_chk CHECK (pain_level >= 0 AND pain_level <= 10)
+);
+
+CREATE INDEX idx_symptom_logs_patient ON symptom_logs(patient_id, logged_at DESC);
+
+
+-- LAB REPORTS
+CREATE TABLE lab_reports (
+    report_id           SERIAL PRIMARY KEY,
+    patient_id          INTEGER NOT NULL REFERENCES patients(patient_id) ON DELETE CASCADE,
+    doctor_id           INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+    title               VARCHAR(255) NOT NULL,
+    file_path           TEXT NOT NULL,
+    uploaded_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_lab_reports_patient ON lab_reports(patient_id);
 
 COMMIT;
 
