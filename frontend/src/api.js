@@ -110,4 +110,14 @@ export const uploadLabReport = async (patientId, formData) => {
     return response.data;
 };
 
+export const login = async (phone, password) => {
+    const response = await api.post('/auth/login/', { phone, password });
+    return response.data;
+};
+
+export const getPatientDashboard = async (userId) => {
+    const response = await api.get(`/dashboard/patient/${userId}/`);
+    return response.data;
+};
+
 export default api;

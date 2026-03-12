@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useLocation } from 'react-router-dom';
 import { Heart, Lock, Phone, ChevronLeft, Stethoscope, User, ShieldCheck } from 'lucide-react';
-import axios from 'axios';
+import { login } from '../api';
 
 function Login() {
     const [phone, setPhone] = useState('');
@@ -32,8 +32,8 @@ function Login() {
         setLoading(true);
         setError('');
         try {
-            const res = await axios.post('/api/auth/login/', { phone, password });
-            const { access, role, user_id } = res.data;
+            const data = await login(phone, password);
+            const { access, role, user_id } = data;
             localStorage.setItem('access_token', access);
             localStorage.setItem('user_role', role);
             localStorage.setItem('user_id', user_id);

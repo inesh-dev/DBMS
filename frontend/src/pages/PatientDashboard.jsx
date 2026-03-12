@@ -4,8 +4,7 @@ import { Heart, Activity, Calendar, DollarSign, LogOut, User, Users, Zap, FileTe
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import VitalsCheckForm from '../components/VitalsCheckForm';
 import { AnimatePresence } from 'framer-motion';
-import axios from 'axios';
-import { updatePatientProfile, addSymptomLog } from '../api';
+import { updatePatientProfile, addSymptomLog, getPatientDashboard } from '../api';
 import { jsPDF } from 'jspdf';
 import autoTable from "jspdf-autotable";
 
@@ -21,11 +20,11 @@ function PatientDashboard() {
 
     const fetchData = async () => {
         try {
-            const res = await axios.get(`/api/dashboard/patient/${userId}/`);
-            setData(res.data);
+            const data = await getPatientDashboard(userId);
+            setData(data);
             setProfileForm({
-                phone: res.data.profile?.phone || '',
-                address: res.data.profile?.address || ''
+                phone: data.profile?.phone || '',
+                address: data.profile?.address || ''
             });
         } catch (err) {
             console.error("Failed to load dashboard data", err);
