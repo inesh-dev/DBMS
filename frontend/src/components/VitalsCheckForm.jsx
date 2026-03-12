@@ -208,6 +208,7 @@ function VitalsCheckForm({ onClose, initialData = {}, allowBooking = false }) {
                 name: formData.name,
                 phone: formData.phone,
                 email: formData.email,
+                gender: formData.gender,
                 dob: '1990-01-01',
                 doctor_id: selectedDoctor.doctor_id,
                 date: selectedSlot.date,

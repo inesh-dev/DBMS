@@ -1,7 +1,20 @@
 import axios from 'axios';
 
+const getBaseURL = () => {
+    const envUrl = import.meta.env.VITE_API_URL;
+    if (!envUrl) return '/api';
+
+    // Ensure we don't double up on /api
+    if (envUrl.endsWith('/api') || envUrl.endsWith('/api/')) {
+        return envUrl;
+    }
+
+    // Append /api with correct slashes
+    return envUrl.endsWith('/') ? `${envUrl}api` : `${envUrl}/api`;
+};
+
 const api = axios.create({
-    baseURL: import.meta.env.VITE_API_URL || '/api',
+    baseURL: getBaseURL(),
 });
 
 export const getVitals = async (patientId = null) => {

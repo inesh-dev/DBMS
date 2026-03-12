@@ -587,7 +587,11 @@ const DoctorDashboard = () => {
         id: a.prediction_id, title: 'Critical Alert',
         message: `${a.name} — risk score ${a.risk_score}`, time: new Date().toLocaleTimeString(), type: 'urgent'
       })));
-    } catch (err) { console.error(err); } finally { setLoading(false); }
+    } catch (err) {
+      console.error("Failed to load doctor dashboard", err);
+      // We could set an error state here, but for now we just log it.
+      // The finally block ensures the loading spinner stops.
+    } finally { setLoading(false); }
   };
 
   useEffect(() => { fetchData(); const t = setInterval(fetchData, 30000); return () => clearInterval(t); }, []);
