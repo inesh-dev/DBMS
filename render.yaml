@@ -21,7 +21,7 @@ services:
       - key: CSRF_TRUSTED_ORIGINS
         value: https://sahara-backend.onrender.com
 
-database:
+databases:
   name: sahara-db
   region: singapore
   plan: free
