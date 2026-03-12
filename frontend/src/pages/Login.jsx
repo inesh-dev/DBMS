@@ -216,7 +216,7 @@ function Login() {
                                 <Heart style={{ width: 20, height: 20, color: '#fff' }} />
                             </div>
                             <span style={{ fontSize: 20, fontWeight: 800, color: '#fff', letterSpacing: '-0.03em', fontFamily: "'DM Sans', sans-serif" }}>
-                                VibeCare<span style={{ opacity: 0.7 }}>Hospital</span>
+                                Sahara<span style={{ opacity: 0.7 }}>Hospital</span>
                             </span>
                         </div>
 
@@ -249,7 +249,7 @@ function Login() {
 
                     {/* Bottom copyright */}
                     <div style={{ position: 'absolute', bottom: 32, left: 64, color: 'rgba(255,255,255,0.4)', fontSize: 12, fontWeight: 500 }}>
-                        © {new Date().getFullYear()} VibeCare Hospital
+                        © {new Date().getFullYear()} Sahara Hospital
                     </div>
                 </div>
 
@@ -437,7 +437,7 @@ function Login() {
 
                     {/* Footer note */}
                     <p style={{ marginTop: 24, color: '#94a3b8', fontSize: 12, fontWeight: 500, textAlign: 'center', fontFamily: "'DM Sans', sans-serif" }}>
-                        © {new Date().getFullYear()} VibeCare Hospital Management System
+                        © {new Date().getFullYear()} Sahara Hospital Management System
                     </p>
                 </div>
             </div>

@@ -5,7 +5,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import VitalsCheckForm from '../components/VitalsCheckForm';
 import { AnimatePresence } from 'framer-motion';
 import axios from 'axios';
-import { updatePatientProfile, addSymptomLog, addMedication, deleteMedication } from '../api';
+import { updatePatientProfile, addSymptomLog } from '../api';
 import { jsPDF } from 'jspdf';
 import autoTable from "jspdf-autotable";
 
@@ -15,12 +15,8 @@ function PatientDashboard() {
     const [isEditingProfile, setIsEditingProfile] = useState(false);
     const [profileForm, setProfileForm] = useState({ phone: '', address: '' });
     const [showAllAppointments, setShowAllAppointments] = useState(false);
-    const [showMedicationModal, setShowMedicationModal] = useState(false);
     const [showSymptomModal, setShowSymptomModal] = useState(false);
-    const [showUploadModal, setShowUploadModal] = useState(false);
-    const [medicationForm, setMedicationForm] = useState({ name: '', dosage: '', frequency: '', instructions: '' });
     const [symptomForm, setSymptomForm] = useState({ mood: 'Good', pain_level: 0, notes: '' });
-    const [uploadForm, setUploadForm] = useState({ title: '', file: null });
     const userId = localStorage.getItem('user_id');
 
     const fetchData = async () => {
@@ -53,7 +49,7 @@ function PatientDashboard() {
         const doc = new jsPDF();
         doc.setFontSize(20);
         doc.setTextColor(59, 130, 246);
-        doc.text("VIBECARE HOSPITAL", 105, 20, { align: "center" });
+        doc.text("SAHARA HOSPITAL", 105, 20, { align: "center" });
         doc.setFontSize(12);
         doc.setTextColor(100, 100, 100);
         doc.text("Official Medical Invoice", 105, 28, { align: "center" });
@@ -64,14 +60,21 @@ function PatientDashboard() {
         doc.text(`Patient: ${data.profile.first_name} ${data.profile.last_name}`, 15, 59);
         doc.setTextColor(bill.status === 'PAID' ? 34 : 234, bill.status === 'PAID' ? 197 : 179, bill.status === 'PAID' ? 94 : 8);
         doc.text(`Status: ${bill.status}`, 160, 45);
+        const invoiceItems = bill.invoices || [];
+        const bodyRows = [
+            ['Consultation / Services Base', `$${bill.base_amount}`],
+            ...invoiceItems.map(item => [
+                `${item.description} (x${item.quantity})`, 
+                `$${item.line_total}`
+            ]),
+            ['Tax Amount', `$${bill.tax_amount}`],
+            ['Discount Applied', `-$${bill.discount_amount}`],
+        ];
+
         autoTable(doc, {    
             startY: 70,
             head: [['Description', 'Amount']],
-            body: [
-                ['Consultation / Services Base', `$${bill.base_amount}`],
-                ['Tax Amount', `$${bill.tax_amount}`],
-                ['Discount Applied', `-$${bill.discount_amount}`],
-            ],
+            body: bodyRows,
             foot: [['Total Amount Due/Paid', `$${bill.total_amount}`]],
             theme: 'striped',
             headStyles: { fillColor: [59, 130, 246] },
@@ -79,7 +82,7 @@ function PatientDashboard() {
         });
         doc.setFontSize(10);
         doc.setTextColor(150, 150, 150);
-        doc.text("Thank you for choosing VibeCare. Wishing you good health.", 105, doc.lastAutoTable.finalY + 30, { align: "center" });
+        doc.text("Thank you for choosing Sahara Hospital. Wishing you good health.", 105, doc.lastAutoTable.finalY + 30, { align: "center" });
         doc.save(`Invoice_${bill.billing_id}.pdf`);
     };
 
@@ -87,7 +90,7 @@ function PatientDashboard() {
         const doc = new jsPDF();
         doc.setFontSize(22);
         doc.setTextColor(16, 185, 129);
-        doc.text("VIBECARE HOSPITAL", 105, 25, { align: "center" });
+        doc.text("SAHARA HOSPITAL", 105, 25, { align: "center" });
         doc.setFontSize(14);
         doc.setTextColor(100, 100, 100);
         doc.text("Clinical Prescription & Summary", 105, 33, { align: "center" });
@@ -130,26 +133,6 @@ function PatientDashboard() {
         doc.save(`Prescription_${new Date(appt.scheduled_at).toISOString().split('T')[0]}.pdf`);
     };
 
-    const handleUploadReport = async (e) => {
-        e.preventDefault();
-        if (!uploadForm.file) {
-            alert("Please select a file to upload.");
-            return;
-        }
-        const formData = new FormData();
-        formData.append('title', uploadForm.title);
-        formData.append('file', uploadForm.file);
-        try {
-            await axios.post(`/api/patients/${data.profile.patient_id}/lab-reports/`, formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
-            setShowUploadModal(false);
-            setUploadForm({ title: '', file: null });
-            fetchData();
-        } catch (err) {
-            alert(err.response?.data?.error || 'Failed to upload report');
-        }
-    };
 
     const handleProfileSave = async () => {
         try {
@@ -161,27 +144,6 @@ function PatientDashboard() {
         }
     };
 
-    const handleAddMedication = async (e) => {
-        e.preventDefault();
-        try {
-            await addMedication(data.profile.patient_id, medicationForm);
-            setShowMedicationModal(false);
-            setMedicationForm({ name: '', dosage: '', frequency: '', instructions: '' });
-            fetchData();
-        } catch (err) {
-            alert(err.response?.data?.error || 'Failed to add medication');
-        }
-    };
-
-    const handleDeleteMedication = async (id) => {
-        if (!confirm('Are you sure you want to remove this medication?')) return;
-        try {
-            await deleteMedication(id);
-            fetchData();
-        } catch (err) {
-            alert(err.response?.data?.error || 'Failed to delete medication');
-        }
-    };
 
     const handleAddSymptomLog = async (e) => {
         e.preventDefault();
@@ -234,7 +196,9 @@ function PatientDashboard() {
         hr: v.heart_rate,
         sys: v.bp_sys,
         dia: v.bp_dia,
-        glucose: v.glucose_level
+        glucose: v.glucose_level,
+        oxygen_saturation: v.oxygen_saturation,
+        temperature: v.temperature
     })).reverse();
 
     const healthScore = data.health_score;
@@ -295,7 +259,7 @@ function PatientDashboard() {
             doc.setFontSize(22);
             doc.setTextColor(37, 99, 235); // Blue-600
             doc.setFont(undefined, 'bold');
-            doc.text("VIBECARE HOSPITAL", 105, 20, { align: "center" });
+            doc.text("SAHARA HOSPITAL", 105, 20, { align: "center" });
 
             doc.setFontSize(14);
             doc.setTextColor(107, 114, 128); // Gray-500
@@ -312,24 +276,26 @@ function PatientDashboard() {
             doc.text(`Patient ID: #${data.profile.patient_id}`, 15, 52);
             doc.text(`Report Date: ${new Date().toLocaleDateString()}`, 130, 45);
             doc.text(`Health Score: ${Math.round(healthScore?.score || 0)}/100`, 130, 52);
+            doc.text(`ML Risk Level: ${healthScore?.risk_level || 'UNKNOWN'}`, 130, 59);
 
-            doc.line(15, 60, 195, 60);
+            doc.line(15, 65, 195, 65);
 
             // --- Latest Vitals Table ---
             doc.setFontSize(14);
             doc.setFont(undefined, 'bold');
-            doc.text("Latest Vital Readings", 15, 75);
+            doc.text("Latest Vital Readings", 15, 80);
 
             const vitalsData = [
                 ['Metric', 'Value', 'Unit'],
                 ['Heart Rate', latestVitals?.hr || 'N/A', 'bpm'],
                 ['Blood Pressure', `${latestVitals?.sys || 'N/A'}/${latestVitals?.dia || 'N/A'}`, 'mmHg'],
                 ['Oxygen Saturation', latestVitals?.oxygen_saturation || 'N/A', '%'],
+                ['Body Temperature', latestVitals?.temperature || 'N/A', '°C'],
                 ['Glucose Level', latestVitals?.glucose || 'N/A', 'mg/dL']
             ];
 
             autoTable(doc,{
-                startY: 80,
+                startY: 85,
                 head: [vitalsData[0]],
                 body: vitalsData.slice(1),
                 theme: 'striped',
@@ -361,6 +327,31 @@ function PatientDashboard() {
             } else {
                 doc.text("No specific clinical insights detected at this time.", 20, finalY);
                 finalY += 10;
+            }
+
+            // --- Recent Clinical History ---
+            const recentAppts = data.appointments?.filter(a => a.status === 'COMPLETED').slice(0, 3) || [];
+            if (recentAppts.length > 0) {
+                finalY += 10;
+                doc.setTextColor(0, 0, 0);
+                doc.setFontSize(14);
+                doc.setFont(undefined, 'bold');
+                doc.text("Recent Clinical Notes", 15, finalY);
+                finalY += 8;
+                doc.setFontSize(10);
+                doc.setFont(undefined, 'normal');
+                
+                recentAppts.forEach(appt => {
+                    const dateStr = new Date(appt.scheduled_at).toLocaleDateString();
+                    const noteText = `• [${dateStr}] Dr. ${appt.doctor_name || 'Medical Officer'}: ${appt.reason || 'Routine'}`;
+                    const lines = doc.splitTextToSize(noteText, 170);
+                    if (finalY + (lines.length * 5) > 280) {
+                        doc.addPage();
+                        finalY = 20;
+                    }
+                    doc.text(lines, 20, finalY);
+                    finalY += (lines.length * 6);
+                });
             }
 
             // --- Footer Disclaimer ---
@@ -434,7 +425,7 @@ function PatientDashboard() {
                         <Heart style={{ width: 18, height: 18, color: '#fff' }} />
                     </div>
                     <div>
-                        <div style={{ fontWeight: 800, fontSize: 16, color: '#111827', letterSpacing: '-0.02em' }}>VibeCare</div>
+                        <div style={{ fontWeight: 800, fontSize: 16, color: '#111827', letterSpacing: '-0.02em' }}>Sahara</div>
                         <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>Patient Portal</div>
                     </div>
                 </div>
@@ -521,22 +512,6 @@ function PatientDashboard() {
                                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>{data.assigned_doctor.specialization || 'General Care'}</div>
                                 </div>
                             </div>
-                            <div style={{ display: 'flex', gap: 8 }}>
-                                <a href={`tel:${data.assigned_doctor.phone}`} style={{
-                                    flex: 1, background: 'rgba(255,255,255,0.2)', borderRadius: 10, padding: '8px 0',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                                    color: '#fff', fontWeight: 700, fontSize: 11, textDecoration: 'none'
-                                }}>
-                                    <Phone style={{ width: 12, height: 12 }} /> Call
-                                </a>
-                                <button style={{
-                                    flex: 1, background: 'rgba(255,255,255,0.2)', border: 'none', borderRadius: 10,
-                                    color: '#fff', fontWeight: 700, fontSize: 11, cursor: 'pointer',
-                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
-                                }}>
-                                    <MessageSquare style={{ width: 12, height: 12 }} /> Message
-                                </button>
-                            </div>
                         </div>
                     </div>
                 )}
@@ -589,7 +564,7 @@ function PatientDashboard() {
                 <div style={{ flex: 1, overflowY: 'auto', padding: '32px 40px', display: 'flex', flexDirection: 'column', gap: 28 }}>
 
                     {/* ── Row 1: Hero Stats ── */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr', gap: 20 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20 }}>
 
                         {/* Health Index — hero card */}
                         <motion.div initial={{ y: 16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} style={card}>
@@ -673,53 +648,6 @@ function PatientDashboard() {
                             )}
                         </motion.div>
 
-                        {/* Upcoming */}
-                        <motion.div initial={{ y: 16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.1 }} style={{ ...card, background: '#eff6ff', border: '1px solid #dbeafe' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-                                <div style={{ ...label, color: '#2563eb' }}>Next Appointment</div>
-                                <div style={{ background: '#fff', borderRadius: 10, padding: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-                                    <Calendar style={{ width: 16, height: 16, color: '#2563eb' }} />
-                                </div>
-                            </div>
-                            {upcomingAppointments.length > 0 ? (
-                                <div>
-                                    <div style={{ fontSize: 15, fontWeight: 800, color: '#1e40af', marginBottom: 4, letterSpacing: '-0.02em' }}>
-                                        {formatDate(upcomingAppointments[0].scheduled_at)}
-                                    </div>
-                                    <div style={{ fontSize: 13, color: '#3b82f6', fontWeight: 600, marginBottom: 12 }}>
-                                        {new Date(upcomingAppointments[0].scheduled_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                                    </div>
-                                    <span style={{
-                                        background: '#fff', padding: '4px 10px', borderRadius: 8, fontSize: 11,
-                                        fontWeight: 700, color: '#374151', border: '1px solid #dbeafe'
-                                    }}>
-                                        Dr. {upcomingAppointments[0].doctor_name}
-                                    </span>
-                                </div>
-                            ) : (
-                                <p style={{ color: '#93c5fd', fontSize: 13, fontStyle: 'italic' }}>No visits scheduled</p>
-                            )}
-                        </motion.div>
-
-                        {/* Treatment Summary */}
-                        <motion.div initial={{ y: 16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: 0.15 }} style={card}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-                                <div style={label}>Treatment</div>
-                                <div style={{ background: '#faf5ff', borderRadius: 10, padding: 8 }}>
-                                    <TrendingUp style={{ width: 16, height: 16, color: '#7c3aed' }} />
-                                </div>
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                                <div style={{ background: '#f9fafb', borderRadius: 12, padding: '14px 16px' }}>
-                                    <div style={{ fontSize: 32, fontWeight: 900, color: '#111827', letterSpacing: '-0.03em' }}>{data.medications?.length || 0}</div>
-                                    <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 700, marginTop: 2 }}>MEDICATIONS</div>
-                                </div>
-                                <div style={{ background: '#f9fafb', borderRadius: 12, padding: '14px 16px' }}>
-                                    <div style={{ fontSize: 32, fontWeight: 900, color: '#111827', letterSpacing: '-0.03em' }}>{data.symptom_logs?.length || 0}</div>
-                                    <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 700, marginTop: 2 }}>LOGS</div>
-                                </div>
-                            </div>
-                        </motion.div>
                     </div>
 
                     {/* ── Row 2: Vitals Chart ── */}
@@ -779,8 +707,8 @@ function PatientDashboard() {
                         )}
                     </div>
 
-                    {/* ── Row 3: Clinical Findings + Care ── */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+                    {/* ── Row 3: Clinical Findings ── */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 20 }}>
                         {/* Clinical Findings */}
                         <div style={{ ...card, borderLeft: '3px solid #2563eb' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
@@ -812,41 +740,10 @@ function PatientDashboard() {
                             </div>
                         </div>
 
-                        {/* Personalized Care */}
-                        <div style={{ ...card, borderLeft: '3px solid #16a34a' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-                                <Zap style={{ width: 16, height: 16, color: '#16a34a' }} />
-                                <h3 style={{ fontSize: 15, fontWeight: 800, color: '#111827', margin: 0 }}>Personalized Care</h3>
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                <div style={{ background: '#eff6ff', border: '1px solid #dbeafe', borderRadius: 14, padding: '16px 18px', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                                    <div style={{ width: 38, height: 38, background: '#fff', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-                                        <Activity style={{ width: 16, height: 16, color: '#2563eb' }} />
-                                    </div>
-                                    <div>
-                                        <div style={{ fontWeight: 700, fontSize: 13, color: '#111827', marginBottom: 4 }}>Biometric Consistency</div>
-                                        <p style={{ fontSize: 12, color: '#6b7280', margin: 0, lineHeight: 1.6 }}>Daily vitals improve AI risk prediction accuracy significantly.</p>
-                                    </div>
-                                </div>
-                                <div style={{ background: '#faf5ff', border: '1px solid #ede9fe', borderRadius: 14, padding: '16px 18px', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                                    <div style={{ width: 38, height: 38, background: '#fff', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-                                        <Calendar style={{ width: 16, height: 16, color: '#7c3aed' }} />
-                                    </div>
-                                    <div>
-                                        <div style={{ fontWeight: 700, fontSize: 13, color: '#111827', marginBottom: 4 }}>Next Consultant Review</div>
-                                        <p style={{ fontSize: 12, color: '#6b7280', margin: 0, lineHeight: 1.6 }}>
-                                            {upcomingAppointments.length > 0
-                                                ? `Confirmed for ${formatDate(upcomingAppointments[0].scheduled_at)}.`
-                                                : 'No pending consultant reviews.'}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
                     </div>
 
-                    {/* ── Row 4: Wellness + Medications ── */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 20 }}>
+                    {/* ── Row 4: Wellness ── */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 20 }}>
                         {/* Wellness */}
                         <div style={card}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
@@ -908,64 +805,6 @@ function PatientDashboard() {
                             )}
                         </div>
 
-                        {/* Medications */}
-                        <div style={card}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-                                <div>
-                                    <h3 style={{ fontSize: 15, fontWeight: 800, color: '#111827', margin: 0 }}>Prescribed Regimen</h3>
-                                    <p style={{ fontSize: 11, color: '#9ca3af', margin: '4px 0 0' }}>Active medications</p>
-                                </div>
-                                <button onClick={() => setShowMedicationModal(true)} style={{ ...btnGhost, fontSize: 12, padding: '8px 16px', color: '#16a34a', borderColor: '#bbf7d0', background: '#f0fdf4' }}>
-                                    <Plus style={{ width: 14, height: 14 }} /> Add Protocol
-                                </button>
-                            </div>
-                            {data.medications?.length > 0 ? (
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                                    {data.medications.map((med, i) => (
-                                        <div key={i} style={{
-                                            background: '#f9fafb', border: '1px solid #f0f0f0',
-                                            borderRadius: 14, padding: '16px', position: 'relative',
-                                            transition: 'border-color 0.15s'
-                                        }}
-                                            onMouseEnter={e => e.currentTarget.style.borderColor = '#bbf7d0'}
-                                            onMouseLeave={e => e.currentTarget.style.borderColor = '#f0f0f0'}
-                                        >
-                                            <button onClick={() => handleDeleteMedication(med.medication_id)} style={{
-                                                position: 'absolute', top: 10, right: 10,
-                                                background: 'none', border: 'none', cursor: 'pointer',
-                                                color: '#d1d5db', padding: 4, borderRadius: 6,
-                                                display: 'flex', alignItems: 'center'
-                                            }}
-                                                onMouseEnter={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = '#fef2f2'; }}
-                                                onMouseLeave={e => { e.currentTarget.style.color = '#d1d5db'; e.currentTarget.style.background = 'none'; }}
-                                            >
-                                                <Trash2 style={{ width: 13, height: 13 }} />
-                                            </button>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                                                <div style={{ width: 34, height: 34, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                    <Activity style={{ width: 14, height: 14, color: '#16a34a' }} />
-                                                </div>
-                                                <div>
-                                                    <div style={{ fontWeight: 700, fontSize: 13, color: '#111827' }}>{med.name}</div>
-                                                    <div style={{ fontSize: 10, color: '#16a34a', fontWeight: 700 }}>{med.dosage} · {med.frequency}</div>
-                                                </div>
-                                            </div>
-                                            {med.instructions && (
-                                                <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 10px', display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                                                    <FileText style={{ width: 11, height: 11, color: '#9ca3af', marginTop: 2, flexShrink: 0 }} />
-                                                    <p style={{ fontSize: 11, color: '#6b7280', margin: 0, lineHeight: 1.5 }}>{med.instructions}</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div style={{ textAlign: 'center', padding: '48px 0', background: '#f9fafb', borderRadius: 14, border: '2px dashed #e5e7eb' }}>
-                                    <Activity style={{ width: 40, height: 40, color: '#e5e7eb', margin: '0 auto 12px' }} />
-                                    <p style={{ fontSize: 12, color: '#9ca3af', fontWeight: 600, margin: 0 }}>No active protocols</p>
-                                </div>
-                            )}
-                        </div>
                     </div>
 
                     {/* ── Visit History ── */}
@@ -1056,7 +895,7 @@ function PatientDashboard() {
                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                 <thead>
                                     <tr style={{ borderBottom: '1px solid #f3f4f6' }}>
-                                        {['Billing Date','Total','Status','Invoice'].map(h => (
+                                        {['Billing Date','Details','Total','Status','Invoice'].map(h => (
                                             <th key={h} style={{ ...label, padding: '0 16px 12px', textAlign: h === 'Invoice' ? 'right' : 'left' }}>{h}</th>
                                         ))}
                                     </tr>
@@ -1065,6 +904,9 @@ function PatientDashboard() {
                                     {data.billing.map((bill, i) => (
                                         <tr key={i} style={{ borderBottom: '1px solid #f9fafb' }}>
                                             <td style={{ padding: '14px 16px', fontSize: 13, fontWeight: 600, color: '#374151' }}>{formatDate(bill.billed_at)}</td>
+                                            <td style={{ padding: '14px 16px', fontSize: 12, color: '#6b7280' }}>
+                                                {bill.invoices?.length > 0 ? `${bill.invoices.length} line items` : 'Standard Consultation'}
+                                            </td>
                                             <td style={{ padding: '14px 16px', fontSize: 18, fontWeight: 800, color: '#16a34a' }}>${bill.total_amount}</td>
                                             <td style={{ padding: '14px 16px' }}>
                                                 <span style={{
@@ -1100,60 +942,6 @@ function PatientDashboard() {
                         )}
                     </div>
 
-                    {/* ── Clinical Documents ── */}
-                    <div style={{ ...card, marginBottom: 8 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
-                            <div>
-                                <h3 style={{ fontSize: 18, fontWeight: 800, color: '#111827', margin: 0, letterSpacing: '-0.02em' }}>Clinical Documents</h3>
-                                <p style={{ fontSize: 11, color: '#9ca3af', margin: '4px 0 0' }}>Lab reports & radiology</p>
-                            </div>
-                            <button onClick={() => setShowUploadModal(true)} style={btnPrimary}>
-                                <Plus style={{ width: 14, height: 14 }} /> Upload Document
-                            </button>
-                        </div>
-                        {data.lab_reports?.length > 0 ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-                                {data.lab_reports.map((report, i) => (
-                                    <div key={i} style={{
-                                        background: '#f9fafb', border: '1px solid #f0f0f0', borderRadius: 16,
-                                        padding: '20px', display: 'flex', flexDirection: 'column', transition: 'all 0.15s'
-                                    }}
-                                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#dbeafe'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(37,99,235,0.08)'; }}
-                                        onMouseLeave={e => { e.currentTarget.style.borderColor = '#f0f0f0'; e.currentTarget.style.boxShadow = 'none'; }}
-                                    >
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-                                            <div style={{ width: 44, height: 44, background: '#eff6ff', border: '1px solid #dbeafe', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                <FileText style={{ width: 20, height: 20, color: '#2563eb' }} />
-                                            </div>
-                                            <span style={{ fontSize: 10, color: '#9ca3af', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 99, padding: '3px 10px', fontWeight: 600 }}>
-                                                {formatDate(report.uploaded_at)}
-                                            </span>
-                                        </div>
-                                        <div style={{ fontWeight: 700, fontSize: 14, color: '#111827', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{report.title}</div>
-                                        <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, marginBottom: 16 }}>
-                                            {report.doctor_name ? `Verified by Dr. ${report.doctor_name}` : 'Patient Uploaded'}
-                                        </div>
-                                        <a href={`http://localhost:8000${report.file_url}`} target="_blank" rel="noopener noreferrer" style={{
-                                            display: 'block', textAlign: 'center', background: '#fff',
-                                            border: '1.5px solid #dbeafe', borderRadius: 10, padding: '9px',
-                                            fontSize: 11, color: '#2563eb', fontWeight: 700, textDecoration: 'none',
-                                            transition: 'background 0.15s', marginTop: 'auto'
-                                        }}
-                                            onMouseEnter={e => e.currentTarget.style.background = '#eff6ff'}
-                                            onMouseLeave={e => e.currentTarget.style.background = '#fff'}
-                                        >
-                                            View Document
-                                        </a>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div style={{ textAlign: 'center', padding: '64px 0', background: '#f9fafb', borderRadius: 14, border: '2px dashed #e5e7eb' }}>
-                                <FileText style={{ width: 48, height: 48, color: '#e5e7eb', margin: '0 auto 12px' }} />
-                                <p style={{ fontSize: 12, color: '#9ca3af', fontWeight: 600, margin: 0 }}>No clinical archives available</p>
-                            </div>
-                        )}
-                    </div>
 
                 </div>
             </div>
@@ -1162,63 +950,19 @@ function PatientDashboard() {
             <AnimatePresence>
                 {showVitalsForm && (
                     <VitalsCheckForm
-                        onClose={() => setShowVitalsForm(false)}
+                        onClose={() => { setShowVitalsForm(false); fetchData(); }}
                         initialData={{
+                            patient_id: data.profile.patient_id,
                             name: `${data.profile.first_name} ${data.profile.last_name}`,
                             phone: data.profile.phone,
-                            email: data.profile.email || ''
+                            email: data.profile.email || '',
+                            age: data.profile.dob
+                                ? Math.floor((new Date() - new Date(data.profile.dob)) / (365.25 * 24 * 60 * 60 * 1000))
+                                : ''
                         }}
                     />
                 )}
 
-                {/* Medication Modal */}
-                {showMedicationModal && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.4)', backdropFilter: 'blur(4px)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-                        <motion.div initial={{ scale: 0.95, y: 12 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95 }}
-                            style={{ background: '#fff', borderRadius: 24, padding: 36, maxWidth: 460, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.12)', position: 'relative', overflow: 'hidden' }}>
-                            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: '#16a34a', borderRadius: '24px 24px 0 0' }} />
-                            <h2 style={{ fontSize: 20, fontWeight: 800, color: '#111827', margin: '0 0 28px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <div style={{ background: '#f0fdf4', borderRadius: 10, padding: 8 }}><Plus style={{ width: 18, height: 18, color: '#16a34a' }} /></div>
-                                Add Medication
-                            </h2>
-                            <form onSubmit={handleAddMedication} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                                <div>
-                                    <div style={{ ...label, marginBottom: 8 }}>Medication Name</div>
-                                    <input required type="text" placeholder="e.g. Paracetamol" value={medicationForm.name}
-                                        onChange={e => setMedicationForm({...medicationForm, name: e.target.value})} style={inputStyle} />
-                                </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                                    <div>
-                                        <div style={{ ...label, marginBottom: 8 }}>Dosage</div>
-                                        <input type="text" placeholder="500mg" value={medicationForm.dosage}
-                                            onChange={e => setMedicationForm({...medicationForm, dosage: e.target.value})} style={inputStyle} />
-                                    </div>
-                                    <div>
-                                        <div style={{ ...label, marginBottom: 8 }}>Frequency</div>
-                                        <input type="text" placeholder="Twice daily" value={medicationForm.frequency}
-                                            onChange={e => setMedicationForm({...medicationForm, frequency: e.target.value})} style={inputStyle} />
-                                    </div>
-                                </div>
-                                <div>
-                                    <div style={{ ...label, marginBottom: 8 }}>Instructions</div>
-                                    <textarea rows={3} placeholder="Take after meals…" value={medicationForm.instructions}
-                                        onChange={e => setMedicationForm({...medicationForm, instructions: e.target.value})}
-                                        style={{ ...inputStyle, resize: 'none' }} />
-                                </div>
-                                <div style={{ display: 'flex', gap: 12, paddingTop: 8 }}>
-                                    <button type="button" onClick={() => setShowMedicationModal(false)}
-                                        style={{ flex: 1, background: 'none', border: 'none', color: '#9ca3af', fontWeight: 600, fontSize: 14, cursor: 'pointer', padding: '13px' }}>
-                                        Cancel
-                                    </button>
-                                    <button type="submit" style={{ ...btnPrimary, flex: 2, justifyContent: 'center', padding: '13px', fontSize: 13 }}>
-                                        Add Protocol
-                                    </button>
-                                </div>
-                            </form>
-                        </motion.div>
-                    </motion.div>
-                )}
 
                 {/* Symptom Modal */}
                 {showSymptomModal && (
@@ -1289,54 +1033,6 @@ function PatientDashboard() {
                     </motion.div>
                 )}
 
-                {/* Upload Modal */}
-                {showUploadModal && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.4)', backdropFilter: 'blur(4px)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-                        <motion.div initial={{ scale: 0.95, y: 12 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95 }}
-                            style={{ background: '#fff', borderRadius: 24, padding: 36, maxWidth: 460, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.12)', position: 'relative', overflow: 'hidden' }}>
-                            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: '#2563eb', borderRadius: '24px 24px 0 0' }} />
-                            <h2 style={{ fontSize: 20, fontWeight: 800, color: '#111827', margin: '0 0 28px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                                <div style={{ background: '#eff6ff', borderRadius: 10, padding: 8 }}><FileText style={{ width: 18, height: 18, color: '#2563eb' }} /></div>
-                                Upload Document
-                            </h2>
-                            <form onSubmit={handleUploadReport} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                                <div>
-                                    <div style={{ ...label, marginBottom: 8 }}>Document Title</div>
-                                    <input required type="text" placeholder="e.g. CBC Blood Analysis" value={uploadForm.title}
-                                        onChange={e => setUploadForm({...uploadForm, title: e.target.value})} style={inputStyle} />
-                                </div>
-                                <div>
-                                    <div style={{ ...label, marginBottom: 8 }}>Medical Document (PDF/IMG)</div>
-                                    <div style={{ position: 'relative' }}>
-                                        <input required type="file" onChange={e => setUploadForm({...uploadForm, file: e.target.files[0]})}
-                                            style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', zIndex: 1 }} />
-                                        <div style={{
-                                            background: '#f9fafb', border: '2px dashed #e5e7eb', borderRadius: 14,
-                                            padding: '28px 20px', textAlign: 'center'
-                                        }}>
-                                            <div style={{ width: 36, height: 36, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px' }}>
-                                                <Plus style={{ width: 16, height: 16, color: '#9ca3af' }} />
-                                            </div>
-                                            <p style={{ fontSize: 12, color: '#6b7280', fontWeight: 600, margin: 0 }}>
-                                                {uploadForm.file ? uploadForm.file.name : 'Select file from device'}
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div style={{ display: 'flex', gap: 12, paddingTop: 8 }}>
-                                    <button type="button" onClick={() => setShowUploadModal(false)}
-                                        style={{ flex: 1, background: 'none', border: 'none', color: '#9ca3af', fontWeight: 600, fontSize: 14, cursor: 'pointer', padding: '13px' }}>
-                                        Cancel
-                                    </button>
-                                    <button type="submit" style={{ ...btnPrimary, flex: 2, justifyContent: 'center', padding: '13px', fontSize: 13 }}>
-                                        Upload to Vault
-                                    </button>
-                                </div>
-                            </form>
-                        </motion.div>
-                    </motion.div>
-                )}
             </AnimatePresence>
         </div>
     );

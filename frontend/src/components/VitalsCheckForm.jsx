@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Heart, Activity, AlertTriangle, Calendar, CheckCircle, Copy, ArrowRight, ArrowLeft, Stethoscope, User, Zap } from 'lucide-react';
 import { checkVitals, bookAppointment } from '../api';
 
-/* ─── Style tokens (matching VibeCare system) ───────────────────────────── */
+/* ─── Style tokens (matching Sahara Hospital system) ───────────────────────────── */
 const T = {
     blue600:  '#2563eb',
     blue700:  '#1d4ed8',
@@ -21,8 +21,12 @@ const T = {
 };
 
 /* ─── Shared input style ────────────────────────────────────────────────── */
-function VField({ label, name, type = 'text', placeholder, required, onChange, optional }) {
+function VField({ label, name, type = 'text', placeholder, required, onChange, optional, value, badge, step }) {
     const [focused, setFocused] = useState(false);
+    // Controlled if value prop is provided, uncontrolled otherwise
+    const inputProps = value !== undefined
+        ? { value, onChange }
+        : { defaultValue: undefined, onChange };
     return (
         <div>
             <label style={{
@@ -33,15 +37,17 @@ function VField({ label, name, type = 'text', placeholder, required, onChange, o
             }}>
                 {label}
                 {optional && <span style={{ color: '#c7d2fe', fontWeight: 500, marginLeft: 6, textTransform: 'none', letterSpacing: 0, fontSize: 10 }}>(optional)</span>}
+                {badge && <span style={{ color: '#16a34a', fontWeight: 700, marginLeft: 6, textTransform: 'none', letterSpacing: 0, fontSize: 10 }}>✓ auto-filled</span>}
             </label>
             <input
                 type={type}
                 name={name}
                 required={required}
                 placeholder={placeholder}
-                onChange={onChange}
+                step={step}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
+                {...inputProps}
                 style={{
                     width: '100%',
                     background: focused ? T.white : T.slate100,
@@ -85,15 +91,90 @@ function ScoreRing({ score, color, size = 120 }) {
     );
 }
 
+/* ─── Select Field helper ───────────────────────────────────────────────── */
+function VSelect({ label, name, options, onChange }) {
+    const [focused, setFocused] = useState(false);
+    return (
+        <div>
+            <label style={{
+                display: 'block', fontSize: 10, fontWeight: 700,
+                color: T.slate400, letterSpacing: '0.08em',
+                textTransform: 'uppercase', marginBottom: 7,
+                fontFamily: T.bodyFont,
+            }}>{label}</label>
+            <select
+                name={name}
+                onChange={onChange}
+                onFocus={() => setFocused(true)}
+                onBlur={() => setFocused(false)}
+                style={{
+                    width: '100%',
+                    background: focused ? T.white : T.slate100,
+                    border: `1.5px solid ${focused ? T.blue600 : T.slate200}`,
+                    borderRadius: 12,
+                    padding: '11px 14px',
+                    fontSize: 14,
+                    fontWeight: 500,
+                    color: T.slate900,
+                    fontFamily: T.bodyFont,
+                    outline: 'none',
+                    boxShadow: focused ? '0 0 0 3px rgba(37,99,235,0.1)' : 'none',
+                    transition: 'all 0.18s',
+                    boxSizing: 'border-box',
+                    cursor: 'pointer',
+                }}
+            >
+                {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+        </div>
+    );
+}
+
+/* ─── ML Risk Badge ─────────────────────────────────────────────────────── */
+const RISK_CONFIG = {
+    LOW:      { bg: '#f0fdf4', border: '#bbf7d0', text: '#15803d', label: 'Low Risk' },
+    MODERATE: { bg: '#fffbeb', border: '#fde68a', text: '#b45309', label: 'Moderate Risk' },
+    HIGH:     { bg: '#fef2f2', border: '#fecaca', text: '#b91c1c', label: 'High Risk' },
+    CRITICAL: { bg: '#fff1f2', border: '#fda4af', text: '#9f1239', label: 'Critical Risk' },
+    UNKNOWN:  { bg: T.slate100, border: T.slate200, text: T.slate500, label: 'Unknown' },
+};
+
+function MLRiskBadge({ riskLevel, riskScore }) {
+    const cfg = RISK_CONFIG[riskLevel] || RISK_CONFIG.UNKNOWN;
+    return (
+        <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: cfg.bg, border: `1.5px solid ${cfg.border}`,
+            borderRadius: 16, padding: '16px 20px',
+        }}>
+            <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: cfg.text, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 4 }}>ML Risk Prediction</div>
+                <div style={{ fontSize: 22, fontWeight: 900, color: cfg.text, letterSpacing: '-0.03em', fontFamily: T.bodyFont }}>{cfg.label}</div>
+            </div>
+            {riskScore !== null && riskScore !== undefined && (
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 32, fontWeight: 900, color: cfg.text, letterSpacing: '-0.04em', lineHeight: 1, fontFamily: T.bodyFont }}>{riskScore}%</div>
+                    <div style={{ fontSize: 9, fontWeight: 700, color: cfg.text, opacity: 0.7, letterSpacing: '0.06em', textTransform: 'uppercase', marginTop: 2 }}>Risk Score</div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 /* ─── Main Component ────────────────────────────────────────────────────── */
-function VitalsCheckForm({ onClose, initialData = {} }) {
+function VitalsCheckForm({ onClose, initialData = {}, allowBooking = false }) {
     const [formData, setFormData] = useState({
+        patient_id: initialData.patient_id || '',
         name: initialData.name || '',
         phone: initialData.phone || '',
         age: initialData.age || '',
         email: initialData.email || '',
+        gender: '0',
+        weight: '',
+        height: '',
         blood_pressure_systolic: '', blood_pressure_diastolic: '',
-        heart_rate: '', glucose_level: '', oxygen_saturation: ''
+        heart_rate: '', glucose_level: '', oxygen_saturation: '',
+        temperature: '', respiratory_rate: ''
     });
     const [step, setStep] = useState(1);
     const [result, setResult] = useState(null);
@@ -146,6 +227,8 @@ function VitalsCheckForm({ onClose, initialData = {} }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
+
+
 
     const isHealthy = result?.health_score >= 90 && !result?.abnormal;
     const scoreColor = isHealthy ? '#16a34a' : result?.health_score > 70 ? '#d97706' : '#dc2626';
@@ -313,10 +396,34 @@ function VitalsCheckForm({ onClose, initialData = {} }) {
                                             </div>
                                         </div>
 
-                                        <div className="vc-vitals-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                                        <div className="vc-vitals-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
                                             <VField label="Heart Rate (bpm)" name="heart_rate" type="number" placeholder="e.g. 72" onChange={handleChange} />
-                                            <VField label="Glucose (mg/dL)" name="glucose_level" type="number" placeholder="e.g. 95" onChange={handleChange} />
+                                            <VField label="Resp Rate (rpm)" name="respiratory_rate" type="number" placeholder="e.g. 16" onChange={handleChange} />
+                                            <VField label="Temp (°C)" name="temperature" type="number" step="0.1" placeholder="e.g. 37.0" onChange={handleChange} />
+                                        </div>
+
+                                        <div className="vc-vitals-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                                             <VField label="SpO₂ (%)" name="oxygen_saturation" type="number" placeholder="e.g. 98" onChange={handleChange} />
+                                            <VField label="Glucose (mg/dL)" name="glucose_level" type="number" placeholder="e.g. 95" optional onChange={handleChange} />
+                                        </div>
+
+                                        {/* ── AI Accuracy Fields ── */}
+                                        <div style={{ marginTop: 14, background: T.blue50, border: `1px solid ${T.blue100}`, borderRadius: 14, padding: '16px 18px' }}>
+                                            <div style={{ fontSize: 10, fontWeight: 700, color: T.blue600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 12 }}>🤖 AI Accuracy Boosters <span style={{ fontWeight: 500, opacity: 0.7 }}>(optional)</span></div>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
+                                                <VField
+                                                    label="Age (yrs)" name="age" type="number" placeholder="e.g. 35"
+                                                    value={formData.age !== '' ? String(formData.age) : ''}
+                                                    onChange={handleChange}
+                                                    badge={!!initialData.age}
+                                                />
+                                                <VField label="Weight (kg)" name="weight" type="number" step="0.1" placeholder="e.g. 70" onChange={handleChange} />
+                                                <VField label="Height (m)" name="height" type="number" step="0.01" placeholder="e.g. 1.70" onChange={handleChange} />
+                                                <VSelect label="Gender" name="gender" onChange={handleChange} options={[
+                                                    { value: '0', label: 'Female' },
+                                                    { value: '1', label: 'Male' },
+                                                ]} />
+                                            </div>
                                         </div>
                                     </div>
 
@@ -375,6 +482,11 @@ function VitalsCheckForm({ onClose, initialData = {} }) {
                                         </div>
                                     ) : (
                                         <>
+                                            {/* ── ML Risk Badge (always shown on result) ── */}
+                                            {result.risk_level && result.risk_level !== 'UNKNOWN' && (
+                                                <MLRiskBadge riskLevel={result.risk_level} riskScore={result.risk_score} />
+                                            )}
+
                                             {/* Score + Alert row */}
                                             <div className="vc-score-row" style={{ display: 'flex', gap: 16 }}>
                                                 {/* Score card */}
@@ -419,200 +531,212 @@ function VitalsCheckForm({ onClose, initialData = {} }) {
                                                 </div>
                                             </div>
 
-                                            {/* Booking / success */}
-                                            {!bookingSuccess ? (
+                                            {/* Done button or Booking */}
+                                            {!allowBooking ? (
+                                                <div style={{ display: 'flex', justifyContent: 'center', marginTop: 16 }}>
+                                                    <button onClick={onClose} className="vc-primary-btn" style={btnPrimary}>
+                                                        Done <ArrowRight style={{ width: 14, height: 14 }} />
+                                                    </button>
+                                                </div>
+                                            ) : (
                                                 <>
-                                                    {/* Specialists header */}
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                        <Stethoscope style={{ width: 14, height: 14, color: T.blue600 }} />
-                                                        <span style={{ fontSize: 13, fontWeight: 700, color: T.slate700, fontFamily: T.bodyFont }}>Available Specialists</span>
-                                                        <div style={{ flex: 1, height: 1, background: T.slate200 }} />
-                                                    </div>
+                                                    {/* Booking / success */}
+                                                    {!bookingSuccess ? (
+                                                        <>
+                                                            {/* Specialists header */}
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 16 }}>
+                                                                <Stethoscope style={{ width: 14, height: 14, color: T.blue600 }} />
+                                                                <span style={{ fontSize: 13, fontWeight: 700, color: T.slate700, fontFamily: T.bodyFont }}>Available Specialists</span>
+                                                                <div style={{ flex: 1, height: 1, background: T.slate200 }} />
+                                                            </div>
 
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                                        {(result.doctors || []).map(doc => {
-                                                            const isSelected = selectedDoctor?.doctor_id === doc.doctor_id;
-                                                            return (
-                                                                <div
-                                                                    key={doc.doctor_id}
-                                                                    className={isSelected ? '' : 'vc-doc-card'}
-                                                                    onClick={() => { setSelectedDoctor(doc); setSelectedSlot(null); }}
-                                                                    style={{
-                                                                        padding: '18px 20px',
-                                                                        borderRadius: 16,
-                                                                        border: `1.5px solid ${isSelected ? T.blue600 : T.slate200}`,
-                                                                        background: isSelected ? T.blue50 : T.white,
-                                                                        cursor: 'pointer',
-                                                                        transition: 'all 0.18s',
-                                                                        boxShadow: isSelected ? '0 4px 20px rgba(37,99,235,0.12)' : 'none',
-                                                                    }}
-                                                                >
-                                                                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                                                                        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-                                                                            <div style={{
-                                                                                width: 44, height: 44, borderRadius: 14,
-                                                                                background: isSelected ? T.blue100 : T.slate100,
-                                                                                border: `1.5px solid ${isSelected ? T.blue200 : T.slate200}`,
-                                                                                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                                                                            }}>
-                                                                                <Stethoscope style={{ width: 18, height: 18, color: isSelected ? T.blue600 : T.slate400 }} />
-                                                                            </div>
-                                                                            <div>
-                                                                                <div style={{ fontWeight: 800, fontSize: 14, color: T.slate900, letterSpacing: '-0.02em' }}>
-                                                                                    {doc.full_name || doc.name || doc.pre_name}
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+                                                                {(result.doctors || []).map(doc => {
+                                                                    const isSelected = selectedDoctor?.doctor_id === doc.doctor_id;
+                                                                    return (
+                                                                        <div
+                                                                            key={doc.doctor_id}
+                                                                            className={isSelected ? '' : 'vc-doc-card'}
+                                                                            onClick={() => { setSelectedDoctor(doc); setSelectedSlot(null); }}
+                                                                            style={{
+                                                                                padding: '18px 20px',
+                                                                                borderRadius: 16,
+                                                                                border: `1.5px solid ${isSelected ? T.blue600 : T.slate200}`,
+                                                                                background: isSelected ? T.blue50 : T.white,
+                                                                                cursor: 'pointer',
+                                                                                transition: 'all 0.18s',
+                                                                                boxShadow: isSelected ? '0 4px 20px rgba(37,99,235,0.12)' : 'none',
+                                                                            }}
+                                                                        >
+                                                                            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                                                                                <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                                                                                    <div style={{
+                                                                                        width: 44, height: 44, borderRadius: 14,
+                                                                                        background: isSelected ? T.blue100 : T.slate100,
+                                                                                        border: `1.5px solid ${isSelected ? T.blue200 : T.slate200}`,
+                                                                                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                                                                    }}>
+                                                                                        <Stethoscope style={{ width: 18, height: 18, color: isSelected ? T.blue600 : T.slate400 }} />
+                                                                                    </div>
+                                                                                    <div>
+                                                                                        <div style={{ fontWeight: 800, fontSize: 14, color: T.slate900, letterSpacing: '-0.02em' }}>
+                                                                                            {doc.full_name || doc.name || doc.pre_name}
+                                                                                        </div>
+                                                                                        <div style={{ fontSize: 12, color: T.blue600, fontWeight: 600, marginTop: 2 }}>
+                                                                                            {doc.specialization} · {doc.experience_years} yrs experience
+                                                                                        </div>
+                                                                                    </div>
                                                                                 </div>
-                                                                                <div style={{ fontSize: 12, color: T.blue600, fontWeight: 600, marginTop: 2 }}>
-                                                                                    {doc.specialization} · {doc.experience_years} yrs experience
-                                                                                </div>
-                                                                            </div>
-                                                                        </div>
-                                                                        {isSelected && (
-                                                                            <div style={{ width: 22, height: 22, background: T.blue600, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                                                                <CheckCircle style={{ width: 13, height: 13, color: '#fff' }} />
-                                                                            </div>
-                                                                        )}
-                                                                    </div>
-
-                                                                    {/* Slots */}
-                                                                    {isSelected && (
-                                                                        <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.blue100}` }}>
-                                                                            <div style={{ fontSize: 10, fontWeight: 700, color: T.slate400, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>Select a time slot</div>
-                                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                                                                {(doc.available_slots || []).length === 0 ? (
-                                                                                    <span style={{ fontSize: 12, color: T.slate400 }}>No slots available</span>
-                                                                                ) : (
-                                                                                    (doc.available_slots || []).map(slot => {
-                                                                                        const isSlotSelected = selectedSlot?.availability_id === slot.availability_id;
-                                                                                        return (
-                                                                                            <button
-                                                                                                key={slot.availability_id}
-                                                                                                className={isSlotSelected ? '' : 'vc-slot-btn'}
-                                                                                                onClick={e => { e.stopPropagation(); setSelectedSlot(slot); }}
-                                                                                                style={{
-                                                                                                    padding: '7px 14px', borderRadius: 9,
-                                                                                                    border: `1.5px solid ${isSlotSelected ? T.blue600 : T.slate200}`,
-                                                                                                    background: isSlotSelected ? T.blue600 : T.white,
-                                                                                                    color: isSlotSelected ? '#fff' : T.slate700,
-                                                                                                    fontSize: 12, fontWeight: 700,
-                                                                                                    fontFamily: T.bodyFont,
-                                                                                                    cursor: 'pointer',
-                                                                                                    transition: 'all 0.15s',
-                                                                                                }}
-                                                                                            >
-                                                                                                {slot.date} · {slot.start.substring(0, 5)}
-                                                                                            </button>
-                                                                                        );
-                                                                                    })
+                                                                                {isSelected && (
+                                                                                    <div style={{ width: 22, height: 22, background: T.blue600, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                                                        <CheckCircle style={{ width: 13, height: 13, color: '#fff' }} />
+                                                                                    </div>
                                                                                 )}
                                                                             </div>
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
 
-                                                    {/* Confirm row */}
-                                                    {selectedSlot && (
+                                                                            {/* Slots */}
+                                                                            {isSelected && (
+                                                                                <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${T.blue100}` }}>
+                                                                                    <div style={{ fontSize: 10, fontWeight: 700, color: T.slate400, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 10 }}>Select a time slot</div>
+                                                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                                                                                        {(doc.available_slots || []).length === 0 ? (
+                                                                                            <span style={{ fontSize: 12, color: T.slate400 }}>No slots available</span>
+                                                                                        ) : (
+                                                                                            (doc.available_slots || []).map(slot => {
+                                                                                                const isSlotSelected = selectedSlot?.availability_id === slot.availability_id;
+                                                                                                return (
+                                                                                                    <button
+                                                                                                        key={slot.availability_id}
+                                                                                                        className={isSlotSelected ? '' : 'vc-slot-btn'}
+                                                                                                        onClick={e => { e.stopPropagation(); setSelectedSlot(slot); }}
+                                                                                                        style={{
+                                                                                                            padding: '7px 14px', borderRadius: 9,
+                                                                                                            border: `1.5px solid ${isSlotSelected ? T.blue600 : T.slate200}`,
+                                                                                                            background: isSlotSelected ? T.blue600 : T.white,
+                                                                                                            color: isSlotSelected ? '#fff' : T.slate700,
+                                                                                                            fontSize: 12, fontWeight: 700,
+                                                                                                            fontFamily: T.bodyFont,
+                                                                                                            cursor: 'pointer',
+                                                                                                            transition: 'all 0.15s',
+                                                                                                        }}
+                                                                                                    >
+                                                                                                        {slot.date} · {slot.start.substring(0, 5)}
+                                                                                                    </button>
+                                                                                                );
+                                                                                            })
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+
+                                                            {/* Confirm row */}
+                                                            {selectedSlot && (
+                                                                <motion.div
+                                                                    initial={{ opacity: 0, y: 10 }}
+                                                                    animate={{ opacity: 1, y: 0 }}
+                                                                    style={{
+                                                                        display: 'flex', justifyContent: 'flex-end', gap: 12,
+                                                                        paddingTop: 16, borderTop: `1px solid ${T.slate200}`,
+                                                                        marginTop: 16
+                                                                    }}
+                                                                >
+                                                                    <button onClick={() => setStep(1)} style={btnGhost}
+                                                                        onMouseEnter={e => e.currentTarget.style.background = '#e2e8f0'}
+                                                                        onMouseLeave={e => e.currentTarget.style.background = T.slate100}
+                                                                    >
+                                                                        <ArrowLeft style={{ width: 14, height: 14 }} /> Back
+                                                                    </button>
+                                                                    <button onClick={handleBook} disabled={loading} className="vc-primary-btn" style={btnPrimary}>
+                                                                        {loading ? (
+                                                                            <>
+                                                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ animation: 'spin 0.75s linear infinite' }}>
+                                                                                    <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.3)" strokeWidth="3" />
+                                                                                    <path d="M12 2a10 10 0 0 1 10 10" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
+                                                                                </svg>
+                                                                                Booking…
+                                                                            </>
+                                                                        ) : (
+                                                                            <><Calendar style={{ width: 15, height: 15 }} /> Confirm Appointment</>
+                                                                        )}
+                                                                    </button>
+                                                                </motion.div>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        /* ── Booking success ──────────────────────── */
                                                         <motion.div
-                                                            initial={{ opacity: 0, y: 10 }}
-                                                            animate={{ opacity: 1, y: 0 }}
-                                                            style={{
-                                                                display: 'flex', justifyContent: 'flex-end', gap: 12,
-                                                                paddingTop: 16, borderTop: `1px solid ${T.slate200}`,
-                                                            }}
+                                                            initial={{ opacity: 0, scale: 0.97 }}
+                                                            animate={{ opacity: 1, scale: 1 }}
+                                                            style={{ textAlign: 'center', marginTop: 24 }}
                                                         >
-                                                            <button onClick={() => setStep(1)} style={btnGhost}
-                                                                onMouseEnter={e => e.currentTarget.style.background = '#e2e8f0'}
-                                                                onMouseLeave={e => e.currentTarget.style.background = T.slate100}
+                                                            <div style={{ width: 64, height: 64, background: T.blue50, border: `1.5px solid ${T.blue100}`, borderRadius: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                                                                <Calendar style={{ width: 26, height: 26, color: T.blue600 }} />
+                                                            </div>
+                                                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: T.blue50, border: `1.5px solid ${T.blue100}`, borderRadius: 99, padding: '5px 14px', marginBottom: 14 }}>
+                                                                <CheckCircle style={{ width: 12, height: 12, color: T.blue600 }} />
+                                                                <span style={{ fontSize: 11, fontWeight: 700, color: T.blue600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Appointment Confirmed</span>
+                                                            </div>
+                                                            <h3 style={{ fontSize: 24, fontWeight: 900, color: T.slate900, letterSpacing: '-0.03em', marginBottom: 10, fontFamily: T.displayFont }}>
+                                                                You're all set!
+                                                            </h3>
+                                                            <p style={{ fontSize: 14, color: T.slate500, maxWidth: 380, margin: '0 auto 24px', lineHeight: 1.7 }}>
+                                                                {result?.credentials ? 'Save your login credentials below. ' : ''}
+                                                                A confirmation has been sent to your email if provided.
+                                                            </p>
+
+                                                            {result?.credentials && (
+                                                                <div style={{
+                                                                    background: T.slate100,
+                                                                    border: `1.5px solid ${T.slate200}`,
+                                                                    borderRadius: 16, padding: '20px 24px',
+                                                                    textAlign: 'left', maxWidth: 380, margin: '0 auto 24px',
+                                                                    position: 'relative',
+                                                                }}>
+                                                                    <div style={{ fontSize: 10, fontWeight: 700, color: T.blue600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 14 }}>Your Login Credentials</div>
+                                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                                        {[
+                                                                            { label: 'Phone', val: result.credentials.phone },
+                                                                            { label: 'Password', val: result.credentials.password },
+                                                                        ].map(({ label, val }) => (
+                                                                            <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                                                <span style={{ fontSize: 12, color: T.slate400, fontWeight: 600 }}>{label}</span>
+                                                                                <span style={{ fontSize: 13, fontWeight: 700, color: T.slate900, fontFamily: 'monospace', background: T.white, padding: '3px 10px', borderRadius: 8, border: `1px solid ${T.slate200}` }}>{val}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                    <button
+                                                                        onClick={handleCopy}
+                                                                        style={{
+                                                                            marginTop: 14, background: copied ? '#f0fdf4' : T.white,
+                                                                            border: `1px solid ${copied ? '#bbf7d0' : T.slate200}`,
+                                                                            borderRadius: 9, padding: '7px 14px',
+                                                                            fontSize: 11, fontWeight: 700, color: copied ? '#15803d' : T.slate600,
+                                                                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
+                                                                            transition: 'all 0.18s', fontFamily: T.bodyFont,
+                                                                        }}
+                                                                    >
+                                                                        {copied ? <CheckCircle style={{ width: 12, height: 12 }} /> : <Copy style={{ width: 12, height: 12 }} />}
+                                                                        {copied ? 'Copied!' : 'Copy credentials'}
+                                                                    </button>
+                                                                </div>
+                                                            )}
+
+                                                            <button
+                                                                onClick={() => window.location.href = '/login'}
+                                                                className="vc-primary-btn"
+                                                                style={{ ...btnPrimary, padding: '13px 32px', fontSize: 14 }}
+                                                                onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(37,99,235,0.42)'; }}
+                                                                onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(37,99,235,0.32)'; }}
                                                             >
-                                                                <ArrowLeft style={{ width: 14, height: 14 }} /> Back
-                                                            </button>
-                                                            <button onClick={handleBook} disabled={loading} className="vc-primary-btn" style={btnPrimary}>
-                                                                {loading ? (
-                                                                    <>
-                                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" style={{ animation: 'spin 0.75s linear infinite' }}>
-                                                                            <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.3)" strokeWidth="3" />
-                                                                            <path d="M12 2a10 10 0 0 1 10 10" stroke="#fff" strokeWidth="3" strokeLinecap="round" />
-                                                                        </svg>
-                                                                        Booking…
-                                                                    </>
-                                                                ) : (
-                                                                    <><Calendar style={{ width: 15, height: 15 }} /> Confirm Appointment</>
-                                                                )}
+                                                                Go to Login Portal <ArrowRight style={{ width: 15, height: 15 }} />
                                                             </button>
                                                         </motion.div>
                                                     )}
                                                 </>
-                                            ) : (
-                                                /* ── Booking success ──────────────────────── */
-                                                <motion.div
-                                                    initial={{ opacity: 0, scale: 0.97 }}
-                                                    animate={{ opacity: 1, scale: 1 }}
-                                                    style={{ textAlign: 'center' }}
-                                                >
-                                                    <div style={{ width: 64, height: 64, background: T.blue50, border: `1.5px solid ${T.blue100}`, borderRadius: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                                                        <Calendar style={{ width: 26, height: 26, color: T.blue600 }} />
-                                                    </div>
-                                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: T.blue50, border: `1.5px solid ${T.blue100}`, borderRadius: 99, padding: '5px 14px', marginBottom: 14 }}>
-                                                        <CheckCircle style={{ width: 12, height: 12, color: T.blue600 }} />
-                                                        <span style={{ fontSize: 11, fontWeight: 700, color: T.blue600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Appointment Confirmed</span>
-                                                    </div>
-                                                    <h3 style={{ fontSize: 24, fontWeight: 900, color: T.slate900, letterSpacing: '-0.03em', marginBottom: 10, fontFamily: T.displayFont }}>
-                                                        You're all set!
-                                                    </h3>
-                                                    <p style={{ fontSize: 14, color: T.slate500, maxWidth: 380, margin: '0 auto 24px', lineHeight: 1.7 }}>
-                                                        {result?.credentials ? 'Save your login credentials below. ' : ''}
-                                                        A confirmation has been sent to your email if provided.
-                                                    </p>
-
-                                                    {result?.credentials && (
-                                                        <div style={{
-                                                            background: T.slate100,
-                                                            border: `1.5px solid ${T.slate200}`,
-                                                            borderRadius: 16, padding: '20px 24px',
-                                                            textAlign: 'left', maxWidth: 380, margin: '0 auto 24px',
-                                                            position: 'relative',
-                                                        }}>
-                                                            <div style={{ fontSize: 10, fontWeight: 700, color: T.blue600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 14 }}>Your Login Credentials</div>
-                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                                                {[
-                                                                    { label: 'Phone', val: result.credentials.phone },
-                                                                    { label: 'Password', val: result.credentials.password },
-                                                                ].map(({ label, val }) => (
-                                                                    <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                                        <span style={{ fontSize: 12, color: T.slate400, fontWeight: 600 }}>{label}</span>
-                                                                        <span style={{ fontSize: 13, fontWeight: 700, color: T.slate900, fontFamily: 'monospace', background: T.white, padding: '3px 10px', borderRadius: 8, border: `1px solid ${T.slate200}` }}>{val}</span>
-                                                                    </div>
-                                                                ))}
-                                                            </div>
-                                                            <button
-                                                                onClick={handleCopy}
-                                                                style={{
-                                                                    marginTop: 14, background: copied ? '#f0fdf4' : T.white,
-                                                                    border: `1px solid ${copied ? '#bbf7d0' : T.slate200}`,
-                                                                    borderRadius: 9, padding: '7px 14px',
-                                                                    fontSize: 11, fontWeight: 700, color: copied ? '#15803d' : T.slate600,
-                                                                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7,
-                                                                    transition: 'all 0.18s', fontFamily: T.bodyFont,
-                                                                }}
-                                                            >
-                                                                {copied ? <CheckCircle style={{ width: 12, height: 12 }} /> : <Copy style={{ width: 12, height: 12 }} />}
-                                                                {copied ? 'Copied!' : 'Copy credentials'}
-                                                            </button>
-                                                        </div>
-                                                    )}
-
-                                                    <button
-                                                        onClick={() => window.location.href = '/login'}
-                                                        className="vc-primary-btn"
-                                                        style={{ ...btnPrimary, padding: '13px 32px', fontSize: 14 }}
-                                                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 24px rgba(37,99,235,0.42)'; }}
-                                                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(37,99,235,0.32)'; }}
-                                                    >
-                                                        Go to Login Portal <ArrowRight style={{ width: 15, height: 15 }} />
-                                                    </button>
-                                                </motion.div>
                                             )}
                                         </>
                                     )}

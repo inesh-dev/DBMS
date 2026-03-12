@@ -194,7 +194,7 @@ function LandingPage() {
                                 <Heart style={{ width: 18, height: 18, color: '#fff' }} />
                             </div>
                             <span style={{ fontSize: 20, fontWeight: 800, letterSpacing: '-0.03em', color: S.slate900, fontFamily: S.bodyFont }}>
-                                VibeCare<span style={{ color: S.blue600 }}>Hospital</span>
+                                Sahara<span style={{ color: S.blue600 }}>Hospital</span>
                             </span>
                         </div>
 
@@ -325,7 +325,7 @@ function LandingPage() {
                                     fontFamily: S.bodyFont,
                                 }}
                             >
-                                VibeCare combines advanced clinical monitoring with a seamless digital experience.
+                                Sahara Hospital combines advanced clinical monitoring with a seamless digital experience.
                                 From AI-driven health insights to instant specialist appointments — we're here for you.
                             </motion.p>
 
@@ -547,7 +547,7 @@ function LandingPage() {
                                 Your Health,<br />Our Priority
                             </h2>
                             <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.8)', marginBottom: 36, maxWidth: 460, margin: '0 auto 36px', lineHeight: 1.7 }}>
-                                Join thousands of patients experiencing smarter, more connected healthcare with VibeCare.
+                                Join thousands of patients experiencing smarter, more connected healthcare with Sahara Hospital.
                             </p>
                             <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
                                 <button
@@ -593,10 +593,10 @@ function LandingPage() {
                         <div style={{ background: S.blue600, width: 30, height: 30, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <Heart style={{ width: 14, height: 14, color: '#fff' }} />
                         </div>
-                        <span style={{ color: '#fff', fontWeight: 700, fontSize: 16, letterSpacing: '-0.02em', fontFamily: S.bodyFont }}>VibeCare<span style={{ color: '#60a5fa' }}>Hospital</span></span>
+                        <span style={{ color: '#fff', fontWeight: 700, fontSize: 16, letterSpacing: '-0.02em', fontFamily: S.bodyFont }}>Sahara<span style={{ color: '#60a5fa' }}>Hospital</span></span>
                     </div>
                     <p style={{ color: '#475569', fontSize: 13, fontFamily: S.bodyFont }}>
-                        © {new Date().getFullYear()} VibeCare Hospital. All rights reserved.
+                        © {new Date().getFullYear()} Sahara Hospital. All rights reserved.
                     </p>
                 </footer>
 
@@ -605,7 +605,7 @@ function LandingPage() {
             {/* ── Vitals Form Modal ───────────────────────────────────────── */}
             <AnimatePresence>
                 {showVitalsForm && (
-                    <VitalsCheckForm onClose={() => setShowVitalsForm(false)} />
+                    <VitalsCheckForm onClose={() => setShowVitalsForm(false)} allowBooking={true} />
                 )}
             </AnimatePresence>
 
