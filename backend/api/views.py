@@ -6,16 +6,164 @@ from rest_framework.response import Response
 from rest_framework import status
 import string
 import random
+import os
+import numpy as np
+import pandas as pd
+import joblib
 from django.contrib.auth.hashers import make_password
 from . import sql_queries
 
+# ─── ML Model Loading ────────────────────────────────────────────────────────
+# Load the trained scikit-learn pipeline once at server startup.
+# The model file lives at: backend/model/risk_predictor.pkl
+_MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'model', 'risk_predictor.pkl')
+try:
+    _RISK_MODEL = joblib.load(_MODEL_PATH)
+    print(f"[ML MODEL] risk_predictor.pkl loaded successfully from {_MODEL_PATH}")
+except Exception as e:
+    _RISK_MODEL = None
+    print(f"[ML MODEL] WARNING: Could not load risk_predictor.pkl — {e}")
+
+# Exact feature column order that the model was trained on
+_MODEL_FEATURES = [
+    'Heart Rate',
+    'Respiratory Rate',
+    'Body Temperature',
+    'Oxygen Saturation',
+    'Systolic Blood Pressure',
+    'Diastolic Blood Pressure',
+    'Age',
+    'Gender',
+    'Weight (kg)',
+    'Height (m)',
+    'Derived_HRV',
+    'Derived_Pulse_Pressure',
+    'Derived_BMI',
+    'Derived_MAP',
+]
+
+
+def predict_vitals(vitals_data: dict) -> dict:
+    """
+    Run the ML pipeline on patient vitals and return a structured prediction.
+
+    Args:
+        vitals_data: dict with keys matching frontend field names:
+            heart_rate, blood_pressure_systolic, blood_pressure_diastolic,
+            oxygen_saturation, temperature, age, gender, weight, height,
+            respiratory_rate (all optional — safe defaults applied)
+
+    Returns:
+        dict with keys: risk_level (str), risk_score (int 0-100), message (str)
+        If the model is unavailable, returns {'error': reason}.
+    """
+    if _RISK_MODEL is None:
+        return {'error': 'ML model is not loaded. Please check server logs.'}
+
+    try:
+        # ── Validate required fields exist and are > 0 ────────────────────────
+        hr_val  = vitals_data.get('heart_rate')
+        sys_val = vitals_data.get('blood_pressure_systolic')
+        dia_val = vitals_data.get('blood_pressure_diastolic')
+
+        if not hr_val or float(hr_val) <= 0:
+            return {'error': 'Heart rate is required and must be positive.'}
+        if not sys_val or float(sys_val) <= 0:
+            return {'error': 'Systolic blood pressure is required and must be positive.'}
+        if not dia_val or float(dia_val) <= 0:
+            return {'error': 'Diastolic blood pressure is required and must be positive.'}
+
+        # ── Extract raw vitals ────────────────────────────────────────────────
+        heart_rate   = float(hr_val) if hr_val is not None else 0.0
+        sys_bp       = float(sys_val) if sys_val is not None else 0.0
+        dia_bp       = float(dia_val) if dia_val is not None else 0.0
+        
+        # Safe defaults for non-critical/optional fields
+        def safe_float(key: str, default: float) -> float:
+            val = vitals_data.get(key)
+            return float(val) if val is not None and val != '' else default
+
+        oxygen       = safe_float('oxygen_saturation', 98.0)
+        temperature  = safe_float('temperature', 37.0)
+        age          = safe_float('age', 35.0)
+        gender       = safe_float('gender', 0.0)   # 0=Female, 1=Male
+        weight       = safe_float('weight', 70.0)  # kg
+        height       = safe_float('height', 1.70)  # m
+        resp_rate    = safe_float('respiratory_rate', 16.0)
+
+        # ── Derive engineered features (same as training notebook) ─────────
+        # HRV approximation: higher heart rate → lower HRV
+        hrv               = round(1000 / heart_rate, 4) if heart_rate > 0 else 13.3
+        pulse_pressure    = sys_bp - dia_bp                    # arterial stiffness proxy
+        bmi               = round(weight / (height ** 2), 4)   # body mass index
+        map_pressure      = round(dia_bp + (sys_bp - dia_bp) / 3, 4)  # mean arterial pressure
+
+        # ── Build DataFrame in exact model feature order ───────────────────
+        row = {
+            'Heart Rate':              heart_rate,
+            'Respiratory Rate':        resp_rate,
+            'Body Temperature':        temperature,
+            'Oxygen Saturation':       oxygen,
+            'Systolic Blood Pressure': sys_bp,
+            'Diastolic Blood Pressure': dia_bp,
+            'Age':                     age,
+            'Gender':                  gender,
+            'Weight (kg)':             weight,
+            'Height (m)':              height,
+            'Derived_HRV':             hrv,
+            'Derived_Pulse_Pressure':  pulse_pressure,
+            'Derived_BMI':             bmi,
+            'Derived_MAP':             map_pressure,
+        }
+        df = pd.DataFrame([row], columns=_MODEL_FEATURES)
+
+        # ── Run prediction ─────────────────────────────────────────────────
+        raw_pred   = _RISK_MODEL.predict(df)[0]           # 0 = LOW, 1 = HIGH
+        proba      = _RISK_MODEL.predict_proba(df)[0][1]  # probability of HIGH RISK
+        risk_score = int(round(proba * 100))              # 0–100 percentage
+
+        # ── Map score to 4-tier risk levels ───────────────────────────────
+        if risk_score >= 75:
+            risk_level = 'CRITICAL'
+            message    = 'Patient vitals indicate a critical risk level. Immediate medical attention is strongly recommended.'
+        elif risk_score >= 50:
+            risk_level = 'HIGH'
+            message    = 'Patient vitals indicate elevated risk. Doctor attention is recommended as soon as possible.'
+        elif risk_score >= 25:
+            risk_level = 'MODERATE'
+            message    = 'Some vitals are slightly out of range. Monitor closely and consider a routine check-up.'
+        else:
+            risk_level = 'LOW'
+            message    = 'Your vitals look healthy! Keep up the great lifestyle habits.'
+
+        # ── Clinical Overrides for Extreme Anomalies ───────────────────────
+        # ML models can fail on outliers outside their training distribution.
+        # Hardcode biological extremes to instantly flag as critical.
+        if (sys_bp < 70 or sys_bp > 200 or 
+            dia_bp < 40 or dia_bp > 130 or 
+            heart_rate < 30 or heart_rate > 160 or 
+            oxygen < 85 or 
+            temperature < 32.0 or temperature > 41.0):
+            risk_level = 'CRITICAL'
+            risk_score = 100
+            message    = 'URGENT: Vitals are critically out of normal biological ranges. Seeking emergency medical care is strongly advised.'
+
+        return {
+            'risk_level': risk_level,
+            'risk_score': risk_score,
+            'message':    message,
+        }
+
+    except Exception as e:
+        return {'error': f'Prediction failed: {str(e)}'}
+
 def send_credential_email(email, phone, password, user_name):
-    subject = "Your VibeCare Hospital Account Credentials"
+    subject = "Your Sahara Hospital Account Credentials"
 
     message = f"""
 Hello {user_name},
 
-Your account has been successfully created at VibeCare Hospital.
+Your account has been successfully created at Sahara Hospital.
 
 Login Details:
 Phone: {phone}
@@ -24,19 +172,19 @@ Temporary Password: {password}
 Please log in and change your password as soon as possible.
 
 Best regards,
-VibeCare Hospital Team
+Sahara Hospital Team
 """
 
     html_message = f"""
     <div style="font-family: Arial, sans-serif; background-color:#f4f6f8; padding:30px;">
         <div style="max-width:600px; margin:auto; background:white; padding:25px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.08);">
             
-            <h2 style="color:#2c7be5; text-align:center;">VibeCare Hospital</h2>
+            <h2 style="color:#2c7be5; text-align:center;">Sahara Hospital</h2>
             <hr>
 
             <p>Dear <strong>{user_name}</strong>,</p>
 
-            <p>Your account has been successfully created at <strong>VibeCare Hospital</strong>.</p>
+            <p>Your account has been successfully created at <strong>Sahara Hospital</strong>.</p>
 
             <div style="background:#f8f9fa; padding:15px; border-radius:6px; margin:20px 0;">
                 <h3 style="margin-top:0;">🔐 Login Credentials</h3>
@@ -56,7 +204,7 @@ VibeCare Hospital Team
 
             <p>
                 Best regards,<br>
-                <strong>VibeCare Hospital Team</strong>
+                <strong>Sahara Hospital Team</strong>
             </p>
 
             <hr>
@@ -141,23 +289,27 @@ def calculate_health_score(vitals):
     return max(0, min(100, score))
 
 class CheckVitalsView(APIView):
-    """API to evaluate vitals dynamically without saving"""
+    """
+    API to evaluate vitals dynamically without saving.
+    Combines rule-based checks with the ML risk predictor pipeline.
+    """
     def post(self, request):
-        name = request.data.get('name')
+        name  = request.data.get('name')
         phone = request.data.get('phone')
-        
-        # At least one vital should be present
-        bp_sys = request.data.get('blood_pressure_systolic')
-        bp_dia = request.data.get('blood_pressure_diastolic')
+
+        # Extract vitals from request
+        bp_sys     = request.data.get('blood_pressure_systolic')
+        bp_dia     = request.data.get('blood_pressure_diastolic')
         heart_rate = request.data.get('heart_rate')
-        glucose = request.data.get('glucose_level')
-        oxygen = request.data.get('oxygen_saturation')
+        glucose    = request.data.get('glucose_level')
+        oxygen     = request.data.get('oxygen_saturation')
 
         if not name or not phone:
             return Response({"error": "Name and phone are required"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # ── Rule-based abnormality checks ─────────────────────────────────
         abnormal = False
-        reasons = []
+        reasons  = []
 
         if bp_sys and (int(bp_sys) < 90 or int(bp_sys) > 120):
             abnormal = True
@@ -175,12 +327,93 @@ class CheckVitalsView(APIView):
             abnormal = True
             reasons.append("Oxygen saturation too low (Normal: 95+)")
 
+        # ── Rule-based health score (0-100, higher = healthier) ───────────
         health_score = calculate_health_score(request.data)
+
+        # ── ML-based risk prediction or Rule-based Fallback ───────────────
+        def is_valid_number(v, min_val=0):
+            try:
+                return v is not None and v != '' and float(v) > min_val
+            except ValueError:
+                return False
         
-        if abnormal:
+        has_full_data = (
+            is_valid_number(request.data.get('heart_rate')) and
+            is_valid_number(request.data.get('blood_pressure_systolic')) and
+            is_valid_number(request.data.get('blood_pressure_diastolic')) and
+            is_valid_number(request.data.get('respiratory_rate')) and
+            is_valid_number(request.data.get('temperature')) and
+            is_valid_number(request.data.get('oxygen_saturation')) and
+            is_valid_number(request.data.get('age')) and
+            is_valid_number(request.data.get('weight')) and
+            is_valid_number(request.data.get('height')) and
+            is_valid_number(request.data.get('gender'), min_val=-1)  # gender is 0 or 1
+        )
+
+        if has_full_data:
+            ml_result  = predict_vitals(request.data)
+            risk_level = ml_result.get('risk_level', 'UNKNOWN')
+            risk_score = ml_result.get('risk_score', None)
+            ml_message = ml_result.get('message', '')
+            ml_error   = ml_result.get('error')
+            model_used = 'ML_RISK_PREDICTOR'
+        else:
+            # Partial vitals: Fallback to rule-based Health Score mapping
+            ml_error = None
+            model_used = 'RULE_BASED_FALLBACK'
+            # Scale rule-based health_score (0=bad, 100=good) to ML risk_score (0=good, 100=bad)
+            risk_score = max(0, 100 - health_score) if health_score is not None else 0
+            
+            if health_score is None:
+                risk_level = 'UNKNOWN'
+                ml_message = 'Insufficient data to calculate risk.'
+            elif health_score >= 80:
+                risk_level = 'LOW'
+                ml_message = 'Vitals look generally healthy based on available partial data.'
+            elif health_score >= 60:
+                risk_level = 'MODERATE'
+                ml_message = 'Partial vitals are slightly out of range. Please provide full vitals for a detailed prediction.'
+            elif health_score >= 40:
+                risk_level = 'HIGH'
+                ml_message = 'Available vitals indicate elevated risk. Doctor attention recommended.'
+            else:
+                risk_level = 'CRITICAL'
+                ml_message = 'Available vitals indicate critical risk. Immediate medical attention advised.'
+
+        # ── Save vitals and prediction if requested by Dashboard ──────────
+        patient_id = request.data.get('patient_id')
+        if patient_id and not ml_error:
+            try:
+                temp_val = request.data.get('temperature')
+                temp = float(temp_val) if temp_val else None
+                with connection.cursor() as cursor:
+                    # 1. Insert into health_data (fires naive database trigger)
+                    safe_hr = heart_rate if heart_rate else None
+                    safe_sys = bp_sys if bp_sys else None
+                    safe_dia = bp_dia if bp_dia else None
+                    safe_gluc = glucose if glucose else None
+                    safe_oxy = oxygen if oxygen else None
+                    
+                    cursor.execute(sql_queries.ADD_VITALS, [
+                        patient_id, safe_hr, safe_sys, safe_dia, temp, safe_gluc, safe_oxy
+                    ])
+                    record = dict_fetch_one(cursor)
+                    if record:
+                        # 2. Update prediction row replacing naive trigger with ML risk
+                        cursor.execute("""
+                            UPDATE predictions
+                            SET score = %s, risk_level = %s, model_name = %s
+                            WHERE health_id = %s
+                        """, [risk_score, risk_level, model_used, record['health_id']])
+            except Exception as e:
+                print(f"[ML MODEL] Failed saving vitals/prediction to DB: {e}")
+
+        # ── Fetch available doctors when vitals are abnormal ──────────────
+        doctors = []
+        if abnormal or risk_level in ('HIGH', 'CRITICAL'):
             with connection.cursor() as cursor:
                 cursor.execute("""
-                    SELECT u.user_id as doctor_id, 
+                    SELECT u.user_id as doctor_id,
                            COALESCE(u.first_name || ' ' || u.last_name, u.email) as full_name,
                            u.specialization, u.experience_years,
                            COALESCE(json_agg(
@@ -191,9 +424,9 @@ class CheckVitalsView(APIView):
                                     'end', da.slot_end
                                 )
                             ) FILTER (
-                                WHERE da.availability_id IS NOT NULL 
+                                WHERE da.availability_id IS NOT NULL
                                 AND (
-                                    SELECT COUNT(*) FROM appointments a 
+                                    SELECT COUNT(*) FROM appointments a
                                     WHERE a.availability_id = da.availability_id
                                     AND a.status != 'CANCELLED'
                                 ) < da.max_patients
@@ -206,23 +439,32 @@ class CheckVitalsView(APIView):
                 """)
                 doctors = dict_fetch_all(cursor)
 
-            return Response({
-                "abnormal": True,
-                "health_score": health_score,
-                "reasons": reasons,
-                "message": "Attention Needed: Your vitals show some abnormalities.",
-                "recommendation": "We recommend consulting a doctor immediately.",
-                "doctors": doctors
-            })
-        else:
-            return Response({
-                "abnormal": False,
-                "health_score": health_score,
-                "reasons": [],
-                "doctors": [],
-                "status": "NORMAL",
-                "message": "Your vitals are within the normal range. Keep up the good work!"
-            })
+        # ── Build unified response ────────────────────────────────────────
+        response_data = {
+            # Rule-based fields (preserve backward compatibility)
+            'abnormal':     abnormal,
+            'health_score': health_score,
+            'reasons':      reasons,
+            'doctors':      doctors,
+            # ML prediction fields
+            'risk_level':   risk_level,
+            'risk_score':   risk_score,
+            'message':      ml_message if not ml_error else (
+                "Attention Needed: Your vitals show some abnormalities." if abnormal
+                else "Your vitals are within the normal range. Keep up the good work!"
+            ),
+            'recommendation': (
+                "We recommend consulting a doctor immediately."
+                if (abnormal or risk_level in ('HIGH', 'CRITICAL'))
+                else "Continue your healthy lifestyle and stay hydrated."
+            ),
+        }
+
+        # Surface any model errors as a non-blocking warning
+        if ml_error:
+            response_data['ml_warning'] = ml_error
+
+        return Response(response_data)
 
 class LatestVitalsView(APIView):
     """API to get latest vitals for all patients or a specific patient"""
@@ -284,7 +526,7 @@ class TriggerRemindersView(APIView):
             
             sent_count = 0
             for appt in appointments:
-                subject = "Reminder: Your Appointment at VibeCare tomorrow"
+                subject = "Reminder: Your Appointment at Sahara Hospital tomorrow"
                 message = f"""
                 Hello {appt['first_name']},
                 
@@ -293,7 +535,7 @@ class TriggerRemindersView(APIView):
                 Please be on time.
                 
                 Best regards,
-                VibeCare Hospital Team
+                Sahara Hospital Team
                 """
                 try:
                     send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [appt['patient_email']])
@@ -607,6 +849,16 @@ class PatientDashboardView(APIView):
                 """, [patient_id])
                 billing = dict_fetch_all(cursor)
 
+                # Fetch invoices for each billing record
+                for bill in billing:
+                    cursor.execute("""
+                        SELECT description, quantity, unit_price, line_total
+                        FROM invoices
+                        WHERE billing_id = %s
+                        ORDER BY line_no ASC
+                    """, [bill['billing_id']])
+                    bill['invoices'] = dict_fetch_all(cursor)
+
                 cursor.execute("""
                     SELECT recorded_at, heart_rate, blood_pressure_systolic as bp_sys, 
                            blood_pressure_diastolic as bp_dia, temperature, glucose_level, oxygen_saturation
@@ -884,14 +1136,6 @@ class DoctorDashboardView(APIView):
                 """, [])
                 open_alerts_count = dict_fetch_one(cursor)['count']
 
-                # Today's Revenue
-                cursor.execute("""
-                    SELECT COALESCE(SUM(total_amount), 0) as total 
-                    FROM billing 
-                    WHERE billed_at >= CURRENT_DATE
-                """, [])
-                today_revenue = dict_fetch_one(cursor)['total']
-
                 # 3. Critical Alerts (Risk > 100)
                 cursor.execute("""
                     SELECT 
@@ -966,8 +1210,7 @@ class DoctorDashboardView(APIView):
                     "metrics": {
                         "active_patients": active_patients,
                         "high_risk": high_risk_count,
-                        "open_alerts": open_alerts_count,
-                        "today_revenue": today_revenue
+                        "open_alerts": open_alerts_count
                     },
                     "alerts": {
                         "critical": critical_alerts,

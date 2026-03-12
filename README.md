@@ -1,4 +1,4 @@
-# VibeMonitoring - Clinical Monitoring System
+# Sahara Hospital Monitoring - Clinical Monitoring System
 
 A modern clinical monitoring dashboard built with Django and React. This system helps track patient vitals and manage doctor appointments.
 

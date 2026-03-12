@@ -83,7 +83,7 @@ CREATE TABLE predictions (
     model_name      VARCHAR(100) NOT NULL,
     generated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    CONSTRAINT predictions_risk_level_chk CHECK (risk_level IN ('LOW', 'MEDIUM', 'HIGH')),
+    CONSTRAINT predictions_risk_level_chk CHECK (risk_level IN ('LOW', 'MEDIUM', 'MODERATE', 'HIGH', 'CRITICAL')),
     CONSTRAINT predictions_score_chk CHECK (score >= 0 AND score <= 100)
 );
 
