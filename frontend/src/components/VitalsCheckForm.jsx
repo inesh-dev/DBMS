@@ -194,7 +194,12 @@ function VitalsCheckForm({ onClose, initialData = {}, allowBooking = false }) {
             setResult(res);
             setStep(2);
         } catch (err) {
-            alert('Error checking vitals: ' + (err.response?.data?.error || err.message));
+            const errorMsg = err.response?.data?.error || err.message;
+            if (errorMsg.includes('Network Error')) {
+                alert('Connection Error: The hospital portal is currently unreachable. Please check if your internet is stable or try again in a few minutes.');
+            } else {
+                alert('Vitals Check Failed: ' + errorMsg);
+            }
         } finally {
             setLoading(false);
         }
@@ -217,7 +222,14 @@ function VitalsCheckForm({ onClose, initialData = {}, allowBooking = false }) {
             if (res.credentials) setResult({ ...result, credentials: res.credentials });
             setBookingSuccess(true);
         } catch (err) {
-            alert('Failed to book appointment: ' + (err.response?.data?.error || err.message));
+            const errorMsg = err.response?.data?.error || err.message;
+            if (errorMsg.includes('Network Error')) {
+                alert('Network Error: We couldn\'t connect to the booking server. Please check your connection and try again.');
+            } else if (errorMsg.toLowerCase().includes('already registered')) {
+                alert('Account Conflict: ' + errorMsg);
+            } else {
+                alert('Booking Failed: ' + errorMsg);
+            }
         } finally {
             setLoading(false);
         }

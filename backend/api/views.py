@@ -606,128 +606,120 @@ class BookAppointmentView(APIView):
         date = request.data.get('date')
         slot_start = request.data.get('slot_start')
 
-        # If patient_id is not provided, we register the user
+        # If patient_id is not provided, we register/identify the user
         if not patient_id:
             name = request.data.get('name')
             phone = request.data.get('phone')
             email = request.data.get('email')
             dob = request.data.get('dob', '1990-01-01')
             
-            # Map gender inputs ('0'/'1' or case-insensitive strings) to DB constraints
-            raw_gender = str(request.data.get('gender', 'OTHER')).upper()
-            if raw_gender in ('0', 'FEMALE'):
-                gender = 'FEMALE'
-            elif raw_gender in ('1', 'MALE'):
-                gender = 'MALE'
-            else:
-                gender = 'OTHER'
-
             if not name or not phone:
-                return Response({"error": "Name and phone are required for new patients"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Name and phone are required for new/returning patients"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Map gender inputs
+            raw_gender = str(request.data.get('gender', 'OTHER')).upper()
+            gender = 'FEMALE' if raw_gender in ('0', 'FEMALE') else 'MALE' if raw_gender in ('1', 'MALE') else 'OTHER'
 
             is_returning_patient = False
+            temp_password = None
+            first_name = name.split(' ', 1)[0]
+            
             try:
                 with connection.cursor() as cursor:
-                    # Check if patient already exists by phone
-                    cursor.execute("SELECT user_id FROM users WHERE phone = %s AND role = 'PATIENT'", [phone])
+                    # 1. Check if user already exists
+                    cursor.execute("SELECT user_id, role, first_name FROM users WHERE phone = %s", [phone])
                     existing_user = cursor.fetchone()
 
                     if existing_user:
-                        # Returning patient — reuse existing user and patient
+                        user_id, role, u_first_name = existing_user
+                        first_name = u_first_name or first_name
+                        
+                        if role != 'PATIENT':
+                            return Response({
+                                "error": f"This phone number is already registered as a {role.lower()}. Please use a different number or contact support."
+                            }, status=status.HTTP_400_BAD_REQUEST)
+                        
                         is_returning_patient = True
-                        user_id = existing_user[0]
-                        cursor.execute("SELECT patient_id FROM patients WHERE phone = %s", [phone])
-                        existing_patient = cursor.fetchone()
-                        if existing_patient:
-                            patient_id = existing_patient[0]
-                            # Update primary doctor to the new booking's doctor
+                        
+                        # Check if patient record exists
+                        cursor.execute("SELECT patient_id FROM patients WHERE user_id = %s", [user_id])
+                        patient_rec = cursor.fetchone()
+                        
+                        if patient_rec:
+                            patient_id = patient_rec[0]
+                            # Update primary doctor
                             cursor.execute("UPDATE patients SET primary_doctor_id = %s WHERE patient_id = %s", [doctor_id, patient_id])
                         else:
-                            # User exists but no patient record (edge case) — create patient
+                            # Edge case: user exists as patient but no patient record
                             names = name.split(' ', 1)
-                            first_name = names[0]
-                            last_name = names[1] if len(names) > 1 else ''
+                            fname = names[0]
+                            lname = names[1] if len(names) > 1 else ''
                             cursor.execute("""
                                 INSERT INTO patients (user_id, first_name, last_name, dob, gender, phone, primary_doctor_id)
                                 VALUES (%s, %s, %s, %s, %s, %s, %s)
                                 RETURNING patient_id
-                            """, [user_id, first_name, last_name, dob, gender, phone, doctor_id])
-                            patient_id = dict_fetch_one(cursor)['patient_id']
+                            """, [user_id, fname, lname, dob, gender, phone, doctor_id])
+                            patient_id = cursor.fetchone()[0]
                     else:
-                        # New patient — create user + patient + generate credentials
+                        # 2. Brand new user
                         temp_password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
                         hashed_pwd = make_password(temp_password)
                         names = name.split(' ', 1)
-                        first_name = names[0]
-                        last_name = names[1] if len(names) > 1 else ''
+                        fname = names[0]
+                        lname = names[1] if len(names) > 1 else ''
 
                         cursor.execute("""
-                            INSERT INTO users (phone, first_name, last_name, password_hash, role)
-                            VALUES (%s, %s, %s, %s, 'PATIENT')
+                            INSERT INTO users (phone, first_name, last_name, password_hash, role, email)
+                            VALUES (%s, %s, %s, %s, 'PATIENT', %s)
                             RETURNING user_id
-                        """, [phone, first_name, last_name, hashed_pwd])
-                        user_id = dict_fetch_one(cursor)['user_id']
+                        """, [phone, fname, lname, hashed_pwd, email])
+                        user_id = cursor.fetchone()[0]
 
                         cursor.execute("""
                             INSERT INTO patients (user_id, first_name, last_name, dob, gender, phone, primary_doctor_id)
                             VALUES (%s, %s, %s, %s, %s, %s, %s)
                             RETURNING patient_id
-                        """, [user_id, first_name, last_name, dob, gender, phone, doctor_id])
-                        patient_id = dict_fetch_one(cursor)['patient_id']
-
-                        # Update email only if not already taken by another user
-                        if email:
-                            cursor.execute("""
-                                UPDATE users SET email = %s 
-                                WHERE user_id = %s 
-                                  AND NOT EXISTS (
-                                    SELECT 1 FROM users WHERE email = %s AND user_id != %s
-                                  )
-                            """, [email, user_id, email, user_id])
+                        """, [user_id, fname, lname, dob, gender, phone, doctor_id])
+                        patient_id = cursor.fetchone()[0]
 
             except Exception as e:
-                return Response({"error": "Failed to create patient account: " + str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                logger.error(f"Account creation failed: {e}")
+                return Response({"error": f"Failed to setup patient account: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Final parameter check for booking
         if not all([patient_id, doctor_id, date, slot_start]):
-            return Response({"error": "Missing required fields"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Missing required booking details (doctor, date, or slot)"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             with connection.cursor() as cursor:
-                # First, verify if the slot is actually available (Server side check)
+                # Execute booking procedure
                 cursor.execute(sql_queries.BOOK_APPOINTMENT, [patient_id, doctor_id, date, slot_start])
-                result = dict_fetch_one(cursor)
+                bt_result = dict_fetch_one(cursor)
                 
-                # Only send credentials for brand new patients
-                if not request.data.get('patient_id') and not is_returning_patient:
-                    if email:
-                        try:
-                            # Send email synchronously to ensure delivery
-                            send_credential_email(email, phone, temp_password, first_name)
-                            logger.info(f"Credential email sent to {email}")
-                        except Exception as e:
-                            logger.error(f"Failed to send email: {str(e)}")
-                            # Don't fail the booking just because email failed
-                
+                if not bt_result or not bt_result.get('appointment_id'):
+                    raise Exception("Booking procedure returned no ID. The slot might have been taken.")
+
+                # Handle email/response for new users
                 response_data = {
                     "message": "Appointment booked successfully", 
-                    "appointment_id": result['appointment_id'],
+                    "appointment_id": bt_result['appointment_id'],
                     "patient_id": patient_id,
                 }
                 
                 if not request.data.get('patient_id'):
                     if is_returning_patient:
                         response_data["returning_patient"] = True
-                        response_data["message"] = "Welcome back! Appointment booked. Use your existing credentials to log in."
+                        response_data["message"] = "Welcome back! Your appointment is confirmed. Log in to your dashboard to view details."
                     else:
-                        response_data["credentials"] = {
-                            "phone": phone,
-                            "password": temp_password
-                        }
+                        response_data["credentials"] = {"phone": phone, "password": temp_password}
+                        if email:
+                            threading.Thread(target=send_credential_email, args=(email, phone, temp_password, first_name)).start()
                 
                 return Response(response_data, status=status.HTTP_201_CREATED)
+                
         except Exception as e:
-            # If this fails, the @transaction.atomic will rollback the user creation too
-            return Response({"error": "Booking failed: " + str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            logger.error(f"Booking failed for patient {patient_id}: {e}")
+            return Response({"error": f"Booking failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
 class CreateBillingView(APIView):
     """API to create billing for an appointment"""
